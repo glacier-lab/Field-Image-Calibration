@@ -19,8 +19,8 @@
 
 %% Configuration
 % Path to DNG image
-% dngFilePath = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\S1-02_after2.CR2";
-dngFilePath = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\AM-S2-05.dng";
+dngFilePath = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\S1-02_after2.CR2";
+% dngFilePath = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\S1-01_after.CR2";
 
 fprintf('Reading DNG image...\n');
 
@@ -74,7 +74,48 @@ fprintf('\nPerforming color checker calibration...\n');
 img_for_calibration = im2double(srgbTransform);
 
 % Detect color checker
-chart = colorChecker(img_for_calibration);
+% Try automatic detection first
+try
+    chart = colorChecker(img_for_calibration, "Downsample", false, "Sensitivity", 1);
+    fprintf('Color checker automatically detected.\n');
+catch
+    fprintf('Automatic detection failed. Please manually select the four corner fiducials.\n');
+    fprintf('Draw point ROIs on the plus-shaped (+) fiducials at each corner.\n');
+    
+    % Create figure for manual selection
+    figManual = figure('Name', 'Manual Color Checker Registration');
+    imshow(img_for_calibration);
+    title('Select corners: 1) Black (top-left), 2) White (top-right), 3) Dark Skin (bottom-left), 4) Bluish Green (bottom-right)');
+    
+    % Draw point ROIs for each corner
+    fprintf('1. Draw point on BLACK corner (top-left)...\n');
+    blackPoint = drawpoint('Color', 'r', 'Label', 'Black');
+    wait(blackPoint);
+    
+    fprintf('2. Draw point on WHITE corner (top-right)...\n');
+    whitePoint = drawpoint('Color', 'r', 'Label', 'White');
+    wait(whitePoint);
+    
+    fprintf('3. Draw point on DARK SKIN corner (bottom-left)...\n');
+    darkSkinPoint = drawpoint('Color', 'r', 'Label', 'Dark Skin');
+    wait(darkSkinPoint);
+    
+    fprintf('4. Draw point on BLUISH GREEN corner (bottom-right)...\n');
+    bluishGreenPoint = drawpoint('Color', 'r', 'Label', 'Bluish Green');
+    wait(bluishGreenPoint);
+    
+    % Collect corner points
+    cornerPoints = [blackPoint.Position;
+                    whitePoint.Position;
+                    darkSkinPoint.Position;
+                    bluishGreenPoint.Position];
+    
+    % Create color checker using registration points
+    chart = colorChecker(img_for_calibration, "RegistrationPoints", cornerPoints);
+    fprintf('Color checker registered using manual points.\n');
+    
+    close(figManual);
+end
 figure; displayChart(chart)
 
 % measure color accuracy
@@ -88,9 +129,9 @@ figure; imshow(img_color_corrected);
 title("sRGB Image after color checker calibration");
 
 % evaluation
-chart_corrected = colorChecker(img_color_corrected);
-colorTable_corrected = measureColor(chart_corrected);
-figure; displayColorPatch(colorTable_corrected);
+% chart_corrected = colorChecker(img_color_corrected);
+% colorTable_corrected = measureColor(chart_corrected);
+% figure; displayColorPatch(colorTable_corrected);
 
 %% use CIELAB lightness for perceptual brightness comparison 
 labImg = rgb2lab(img_color_corrected);
@@ -120,6 +161,55 @@ meanLightness = mean(lightnessROI(mask), 'omitnan');
 stdLightness = std(lightnessROI(mask), 'omitnan');
 fprintf('Mean Lightness within ROI: %.4f ± %.4f\n', meanLightness, stdLightness);
 
+% close(figROI);
+
+%% Draw line for scale calibration
+fprintf('\nDraw a line for scale calibration...\n');
+fprintf('Draw a line of known distance on the image.\n');
+
+% Create figure for scale calibration
+figScale = figure('Name', 'Draw Scale Reference Line');
+imshow(img_color_corrected);
+title('Draw a line of known distance - Double-click to finish');
+
+% Draw line
+scaleLine = drawline('Color', 'c', 'LineWidth', 2, 'Label', 'Scale Reference');
+wait(scaleLine); % Wait for user to finish drawing
+
+% Calculate pixel length
+linePos = scaleLine.Position;
+pixelLength = sqrt((linePos(2,1) - linePos(1,1))^2 + (linePos(2,2) - linePos(1,2))^2);
+
+% Ask user for real-world distance
+prompt = {'Enter the real-world distance (in cm):'};
+dlgtitle = 'Scale Calibration';
+dims = [1 50];
+definput = {'10'};
+answer = inputdlg(prompt, dlgtitle, dims, definput);
+
+if ~isempty(answer)
+    realDistance_cm = str2double(answer{1});
+    pixelsPerCm = pixelLength / realDistance_cm;
+    
+    fprintf('Scale calibration:\n');
+    fprintf('  Line length: %.2f pixels\n', pixelLength);
+    fprintf('  Real distance: %.2f cm\n', realDistance_cm);
+    fprintf('  Scale: %.2f pixels/cm\n', pixelsPerCm);
+    
+    % Store scale information
+    scaleInfo.linePosition = linePos;
+    scaleInfo.pixelLength = pixelLength;
+    scaleInfo.realDistance_cm = realDistance_cm;
+    scaleInfo.pixelsPerCm = pixelsPerCm;
+    scaleInfo.cmPerPixel = 1 / pixelsPerCm;
+else
+    fprintf('Scale calibration cancelled. No scale bar will be added.\n');
+    scaleInfo = [];
+    pixelsPerCm = NaN;
+end
+
+% close(figScale);
+
 %% Save RGB figure with ROI and display lightness image
 % Create output directory if it doesn't exist
 [filepath, name, ~] = fileparts(dngFilePath);
@@ -131,6 +221,7 @@ end
 % Create figure with two subplots
 figComparison = figure('Name', 'RGB with ROI and Lightness');
 t = tiledlayout(1,2,'Padding','compact','TileSpacing','compact');
+
 ax1 = nexttile;
 % Left subplot: RGB image with ROI
 imshow(img_color_corrected);
@@ -138,13 +229,38 @@ hold on;
 % Redraw the polygon on this subplot
 plot([roi.Position(:,1); roi.Position(1,1)], [roi.Position(:,2); roi.Position(1,2)], ...
     'y-', 'LineWidth', 2);
+
+% Add scale bar if calibration was done
+if ~isempty(scaleInfo)
+    % Position scale bar in bottom-left corner
+    imgSize = size(img_color_corrected);
+    scaleBarLength_cm = 10; % 10 cm scale bar
+    scaleBarLength_px = scaleBarLength_cm * pixelsPerCm;
+    
+    % Scale bar position (with margins)
+    margin = 200; % pixels from edge
+    scaleBarX = margin;
+    scaleBarY = imgSize(1) - margin;
+    
+    % Draw scale bar
+    plot([scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
+        'k-', 'LineWidth', 4);
+    
+    % Add text label to the right of the scale bar
+    textOffset = 150; % pixels to the right of the bar
+    textX = scaleBarX + scaleBarLength_px + textOffset;
+    textY = scaleBarY;
+    text(textX, textY, sprintf('%d cm', scaleBarLength_cm), ...
+        'Color', 'white', 'FontWeight', 'bold', ...
+        'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+        'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+end
+
 hold off;
 title('a) RGB Image with ROI');
 
 % Right subplot: Lightness image
 ax2 = nexttile;
-% show NaNs as white by making NaN pixels transparent over a white axes background
-% set(ax2, 'Color', [1 1 1]); 
 imagesc(ax2, lightnessROI, 'AlphaData', ~isnan(lightnessROI));
 colormap(ax2, func_dpcolor());
 axis(ax2, 'off');
@@ -153,8 +269,30 @@ clim([0 1]);
 cb = colorbar;
 cb.Label.String = 'CIELAB Lightness (L*) / 100';
 title(sprintf('b) Lightness within ROI (Mean: %.4f)', meanLightness));
+
+% Add scale bar to lightness image if calibration was done
+if ~isempty(scaleInfo)
+    hold on;
+    % Draw scale bar at same position
+    plot([scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
+        'k-', 'LineWidth', 4);
+    
+    % Add text label to the right of the scale bar
+    % reuse existing textOffset if present, otherwise set a default
+    if ~exist('textOffset','var')
+        textOffset = 150; % pixels to the right of the bar
+    end
+    textX = scaleBarX + scaleBarLength_px + textOffset;
+    textY = scaleBarY;
+    text(textX, textY, sprintf('%d cm', scaleBarLength_cm), ...
+        'Color', 'white', 'FontWeight', 'bold', ...
+        'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+        'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+    hold off;
+end
+
 fontsize(t, 16, 'points');
-axis image;
+axis(ax2, 'image');
 
 % Save the comparison figure
 exportgraphics(figComparison,  fullfile(outputDir, sprintf('%s_roi_lightness.png', name)), 'Resolution', 300);
@@ -169,6 +307,7 @@ roiData.lightnessValues = lightnessROI(mask);
 roiData.minLightness = min(lightnessROI(mask));
 roiData.maxLightness = max(lightnessROI(mask));
 roiData.stdLightness = std(lightnessROI(mask));
+roiData.scaleInfo = scaleInfo; % Add scale information
 
 roiDataFilename = fullfile(outputDir, sprintf('%s_roi_data.mat', name));
 save(roiDataFilename, 'roiData');
@@ -181,4 +320,10 @@ fprintf('Std:    %.4f\n', roiData.stdLightness);
 fprintf('Min:    %.4f\n', roiData.minLightness);
 fprintf('Max:    %.4f\n', roiData.maxLightness);
 fprintf('Pixels: %d\n', sum(mask(:)));
+if ~isempty(scaleInfo)
+    fprintf('\n=== Scale Information ===\n');
+    fprintf('Pixels per cm: %.2f\n', scaleInfo.pixelsPerCm);
+    fprintf('cm per pixel:  %.4f\n', scaleInfo.cmPerPixel);
+    fprintf('ROI area (cm²): %.2f\n', sum(mask(:)) * scaleInfo.cmPerPixel^2);
+end
 fprintf('================================\n');
