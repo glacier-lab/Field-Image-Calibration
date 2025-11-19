@@ -118,20 +118,41 @@ catch
 end
 figure; displayChart(chart)
 
-% measure color accuracy
-[colorTable,ccm] = measureColor(chart);
-figure; displayColorPatch(colorTable);
+% measure color accuracy - use only grayscale patches (19-24)
+[colorTable,~] = measureColor(chart);
+
+% Filter to use only grayscale patches (indices 19-24)
+fprintf('Using only grayscale patches (19-24) for calibration...\n');
+grayPatchIndices = 13:24;
+colorTable_gray = colorTable(grayPatchIndices, :);
+
+% Extract measured RGB values
+measuredRGB_gray = [colorTable_gray.Measured_R, ...
+                    colorTable_gray.Measured_G, ...
+                    colorTable_gray.Measured_B];
+
+% Extract reference LAB values and convert to RGB
+referenceLAB_gray = [colorTable_gray.Reference_L, ...
+                     colorTable_gray.Reference_a, ...
+                     colorTable_gray.Reference_b];
+referenceRGB_gray = lab2rgb(referenceLAB_gray);
+
+% Augment with ones for affine transformation (includes offset)
+measuredRGB_gray_aug = [measuredRGB_gray, ones(size(measuredRGB_gray, 1), 1)];
+
+% Solve for transformation matrix: referenceRGB = measuredRGB * ccm_gray
+ccm = measuredRGB_gray_aug \ referenceRGB_gray;
+
+% Display comparison
+figure; displayColorPatch(colorTable_gray);
+title('Grayscale Patches (19-24) - Measured vs Reference');
 
 % apply color correction
 img_color_corrected = imapplymatrix(ccm(1:3,:)',img_for_calibration,ccm(4,:));
 
 figure; imshow(img_color_corrected);
-title("sRGB Image after color checker calibration");
+title("sRGB Image after grayscale-only calibration");
 
-% evaluation
-% chart_corrected = colorChecker(img_color_corrected);
-% colorTable_corrected = measureColor(chart_corrected);
-% figure; displayColorPatch(colorTable_corrected);
 
 %% use CIELAB lightness for perceptual brightness comparison 
 labImg = rgb2lab(img_color_corrected);
