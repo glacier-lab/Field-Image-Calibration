@@ -18,15 +18,22 @@
 % =========================================================================
 
 %% Configuration
-% Path to DNG image
-dngFilePath = "C:\Users\gdf435\Downloads\sites\sites\S1-02_after2.CR2";
-% dngFilePath = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\S1-01_after.CR2";
+% Select raw image file via dialog
+[fileName, filePath] = uigetfile( ...
+    {'*.CR2;*.CR3;*.NEF;*.ARW;*.DNG;*.RAF;*.ORF;*.RW2', 'Raw Image Files (*.CR2,*.CR3,*.NEF,*.ARW,*.DNG,*.RAF,*.ORF,*.RW2)'; ...
+     '*.*', 'All Files (*.*)'}, ...
+    'Select a Raw Image File');
 
-fprintf('Reading DNG image...\n');
+if isequal(fileName, 0)
+    error('No file selected. Exiting.');
+end
+rawFilePath = fullfile(filePath, fileName);
+[~, ~, imformat] = fileparts(rawFilePath);
+fprintf('Reading raw image in %s format...\n', imformat);
 
-% Read the DNG file
-rawImage = rawread(dngFilePath);
-rawInfo = rawinfo(dngFilePath);
+% Read the raw file
+rawImage = rawread(rawFilePath);
+rawInfo = rawinfo(rawFilePath);
 colorInfo = rawInfo.ColorInfo;
 
 %% Image Corrections
@@ -74,12 +81,37 @@ fprintf('\nPerforming color checker calibration...\n');
 img_for_calibration = im2double(srgbTransform);
 
 % Detect color checker
-% Try automatic detection first
+% Try automatic detection first, then ask user to confirm
+autoDetected = false;
 try
     chart = colorChecker(img_for_calibration, "Downsample", false, "Sensitivity", 1);
     fprintf('Color checker automatically detected.\n');
+    autoDetected = true;
 catch
-    fprintf('Automatic detection failed. Please manually select the four corner fiducials.\n');
+    fprintf('Automatic detection failed.\n');
+end
+
+% If auto-detected, show result and ask user to confirm
+if autoDetected
+    figChart = figure('Name', 'Color Checker Detection Result');
+    displayChart(chart);
+    title('Auto-detected Color Checker - Please verify the result');
+    
+    answer = questdlg('Was the color checker successfully identified?', ...
+        'Color Checker Verification', 'Yes', 'No - Pick manually', 'Yes');
+    
+    if strcmp(answer, 'No - Pick manually')
+        close(figChart);
+        autoDetected = false;
+        fprintf('Switching to manual corner selection.\n');
+    else
+        fprintf('Color checker confirmed by user.\n');
+    end
+end
+
+% Manual corner selection if auto-detection failed or was rejected
+if ~autoDetected
+    fprintf('Please manually select the four corner fiducials.\n');
     fprintf('Draw point ROIs on the plus-shaped (+) fiducials at each corner.\n');
     
     % Create figure for manual selection
@@ -115,8 +147,8 @@ catch
     fprintf('Color checker registered using manual points.\n');
     
     close(figManual);
+    figure; displayChart(chart)
 end
-figure; displayChart(chart)
 
 % measure color accuracy - use only grayscale patches (19-24)
 [colorTable,~] = measureColor(chart);
@@ -233,7 +265,7 @@ end
 
 %% Save RGB figure with ROI and display lightness image
 % Create output directory if it doesn't exist
-[filepath, name, ~] = fileparts(dngFilePath);
+[filepath, name, ~] = fileparts(rawFilePath);
 outputDir = fullfile(filepath, 'calibrated_output');
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
@@ -324,14 +356,14 @@ fprintf('Figure saved to: %s\n', fullfile(outputDir, sprintf('%s_roi_lightness.p
 roiData.mask = mask;
 roiData.roiPosition = roi.Position;
 roiData.meanLightness = meanLightness;
-roiData.lightnessValues = lightnessROI(mask);
+roiData.lightnessValues = lightnessROI;
 roiData.minLightness = min(lightnessROI(mask));
 roiData.maxLightness = max(lightnessROI(mask));
 roiData.stdLightness = std(lightnessROI(mask));
 roiData.scaleInfo = scaleInfo; % Add scale information
 
 roiDataFilename = fullfile(outputDir, sprintf('%s_roi_data.mat', name));
-save(roiDataFilename, 'roiData');
+save(roiDataFilename, 'roiData', 'img_color_corrected');
 fprintf('ROI data saved to: %s\n', roiDataFilename);
 
 % Display statistics
