@@ -16,7 +16,8 @@
 % Shunan Feng (shunan.feng@envs.au.dk)
 %
 % =========================================================================
-
+clearvars;
+close all;
 %% Configuration
 % Select raw image file via dialog
 [fileName, filePath] = uigetfile( ...
