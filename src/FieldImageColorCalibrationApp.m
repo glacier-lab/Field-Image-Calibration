@@ -54,8 +54,11 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
 
         % Button pushed function: SelectImageButton
         function SelectImageButtonPushed(app, event)
-            [file, path] = uigetfile({'*.dng;*.cr2;*.CR2', 'RAW Images (*.dng, *.cr2)'}, ...
-                'Select DNG or CR2 Image');
+            [file, path] = uigetfile( ...
+                {'*.CR2;*.CR3;*.NEF;*.ARW;*.DNG;*.RAF;*.ORF;*.RW2', ...
+                 'Raw Image Files (*.CR2,*.CR3,*.NEF,*.ARW,*.DNG,*.RAF,*.ORF,*.RW2)'; ...
+                 '*.*', 'All Files (*.*)'}, ...
+                'Select a Raw Image File');
             
             if isequal(file, 0)
                 return; % User canceled
@@ -113,12 +116,33 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
                 % Color checker calibration
                 img_for_calibration = im2double(srgbTransform);
                 
-                % Try automatic detection first
+                % Try automatic detection first, then allow user confirmation
+                autoDetected = false;
                 try
                     chart = colorChecker(img_for_calibration, "Downsample", false, "Sensitivity", 1);
-                    app.StatisticsTextArea.Value = 'Color checker automatically detected.';
+                    autoDetected = true;
+                    app.StatisticsTextArea.Value = 'Color checker automatically detected. Waiting for confirmation...';
+                    drawnow;
                 catch
                     app.StatisticsTextArea.Value = 'Automatic detection failed. Manual selection required.';
+                    drawnow;
+                end
+
+                if autoDetected
+                    answer = uiconfirm(app.UIFigure, ...
+                        'Was the color checker successfully identified?', ...
+                        'Color Checker Verification', ...
+                        'Options', {'Yes', 'No - Pick manually'}, ...
+                        'DefaultOption', 1);
+
+                    if strcmp(answer, 'No - Pick manually')
+                        autoDetected = false;
+                    end
+                end
+
+                if ~autoDetected
+                    app.StatisticsTextArea.Value = 'Manual color checker selection in progress.';
+                    drawnow;
                     
                     % Manual color checker selection
                     figManual = uifigure('Name', 'Manual Color Checker Registration');
@@ -156,6 +180,7 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
                 % Calculate lightness
                 labImg = rgb2lab(app.img_color_corrected);
                 app.lightnessImg = im2double(labImg(:,:,1)) / 100;
+                app.lightnessImg = min(max(app.lightnessImg, 0), 1);
                 
                 % Display RGB image
                 cla(app.RGBAxes);
@@ -196,7 +221,8 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
             app.scaleLine = drawline(app.RGBAxes, 'Color', 'c', 'LineWidth', 2, 'Label', 'Scale Reference');
             
             % Wait for user to finish and prompt for distance
-            addlistener(app.scaleLine, 'ROIMoved', @(src, evt) app.processScale());
+            wait(app.scaleLine);
+            app.processScale();
         end
 
         % Process scale calibration
@@ -268,7 +294,8 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
             app.roiPolygon = drawpolygon(app.RGBAxes, 'Color', 'y', 'LineWidth', 2);
             
             % Wait for user to finish drawing
-            addlistener(app.roiPolygon, 'ROIMoved', @(src, evt) app.completeROIDrawing());
+            wait(app.roiPolygon);
+            app.completeROIDrawing();
         end
 
         % Mark ROI drawing as complete
@@ -327,8 +354,9 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
                 cla(app.LightnessAxes);
                 imagesc(app.LightnessAxes, lightnessROI, 'AlphaData', ~isnan(lightnessROI));
                 colormap(app.LightnessAxes, func_dpcolor());
-                app.LightnessAxes.Visible = 'off';
-                colorbar(app.LightnessAxes);
+                axis(app.LightnessAxes, 'off');
+                cb = colorbar(app.LightnessAxes);
+                cb.Label.String = 'CIELAB Lightness (L*) / 100';
                 clim(app.LightnessAxes, [0 1]);
                 app.LightnessAxes.Title.String = sprintf('Lightness (Mean: %.4f)', app.roiData.meanLightness);
                 app.LightnessAxes.Title.Visible = 'on';
@@ -461,7 +489,8 @@ classdef FieldImageColorCalibrationApp < matlab.apps.AppBase
             % Save ROI data
             roiDataFile = fullfile(outputDir, sprintf('%s_roi_data.mat', name));
             roiData = app.roiData;
-            save(roiDataFile, 'roiData');
+            img_color_corrected = app.img_color_corrected;
+            save(roiDataFile, 'roiData', 'img_color_corrected');
             
             app.StatisticsTextArea.Value = sprintf('Figure saved to:\n%s\n\nROI data saved to:\n%s', ...
                 pngFile, roiDataFile);

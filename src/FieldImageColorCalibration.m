@@ -170,6 +170,8 @@ title("sRGB Image after color checker calibration");
 labImg = rgb2lab(img_color_corrected);
 % Calculate the mean lightness value for perceptual brightness comparison
 lightnessImg = im2double(labImg(:,:,1))/100;
+% clip to 0 and 1 range
+lightnessImg = clip(lightnessImg, 0, 1);
 
 %% Draw polygon ROI on RGB image
 fprintf('\nDraw a polygon ROI on the RGB image...\n');
