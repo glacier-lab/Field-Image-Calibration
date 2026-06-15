@@ -1,9 +1,11 @@
-classdef FieldImageColorCalibration < matlab.apps.AppBase
+classdef iCalibrateImages < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
-        UIFigure                   matlab.ui.Figure
-        Label                      matlab.ui.control.Label
+        iCalibrateImagesUIFigure   matlab.ui.Figure
+        GridLayout                 matlab.ui.container.GridLayout
+        Image6                     matlab.ui.control.Image
+        Label                      matlab.ui.control.Hyperlink
         Image5                     matlab.ui.control.Image
         Image4                     matlab.ui.control.Image
         Image3                     matlab.ui.control.Image
@@ -12,11 +14,13 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
         TabGroup                   matlab.ui.container.TabGroup
         RGBTab                     matlab.ui.container.Tab
         RGBAxes                    matlab.ui.control.UIAxes
-        LightnessTab               matlab.ui.container.Tab
+        IndexTab                   matlab.ui.container.Tab
         LightnessAxes              matlab.ui.control.UIAxes
         Panel                      matlab.ui.container.Panel
+        IndexDropDown              matlab.ui.control.DropDown
+        IndexDropDownLabel         matlab.ui.control.Label
         TextArea                   matlab.ui.control.TextArea
-        RestAllButton              matlab.ui.control.Button
+        ResetAllButton             matlab.ui.control.Button
         SaveResultsButton          matlab.ui.control.Button
         CalculateStatisticsButton  matlab.ui.control.Button
         DrawROIButton              matlab.ui.control.Button
@@ -30,6 +34,8 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
         dngFilePath               % Path to selected DNG file
         img_color_corrected       % Calibrated RGB image
         lightnessImg              % Lightness image
+        currentIndexMap           % Currently selected index image
+        selectedIndexName         % Currently selected index name
         roiPolygon                % ROI polygon object
         scaleLine                 % Scale line object
         mask                      % ROI mask
@@ -40,7 +46,134 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
     end
     
     methods (Access = private)
-        
+
+        function [selectedIndexImg, indexLabel, fileTag] = getSelectedIndexImage(app)
+            rgb = app.img_color_corrected;
+            rgbSum = sum(rgb, 3);
+            rgbSum(rgbSum == 0) = eps;
+
+            switch app.IndexDropDown.Value
+                case 'Lightness'
+                    selectedIndexImg = app.lightnessImg;
+                    indexLabel = 'CIELAB Lightness (L*) / 100';
+                    fileTag = 'lightness';
+                case 'Red Chromatic Coordinate'
+                    selectedIndexImg = rgb(:,:,1) ./ rgbSum;
+                    indexLabel = 'Red Chromatic Coordinate R/(R+G+B)';
+                    fileTag = 'rcc';
+                case 'Green Chromatic Coordinate'
+                    selectedIndexImg = rgb(:,:,2) ./ rgbSum;
+                    indexLabel = 'Green Chromatic Coordinate G/(R+G+B)';
+                    fileTag = 'gcc';
+                case 'Blue Chromatic Coordinate'
+                    selectedIndexImg = rgb(:,:,3) ./ rgbSum;
+                    indexLabel = 'Blue Chromatic Coordinate B/(R+G+B)';
+                    fileTag = 'bcc';
+                otherwise
+                    selectedIndexImg = app.lightnessImg;
+                    indexLabel = 'CIELAB Lightness (L*) / 100';
+                    fileTag = 'lightness';
+            end
+
+            selectedIndexImg = min(max(selectedIndexImg, 0), 1);
+        end
+
+        function [cmap, cbarLabel] = getSelectedIndexColormap(app)
+            switch app.IndexDropDown.Value
+                case 'Lightness'
+                    cmap = func_dpcolor();
+                    cbarLabel = 'CIELAB Lightness (L*) / 100';
+                case 'Green Chromatic Coordinate'
+                    cmap = cmocean('algae');
+                    cbarLabel = 'Green Chromatic Coordinate G/(R+G+B)';
+                case 'Red Chromatic Coordinate'
+                    cmap = cmocean('amp');
+                    cbarLabel = 'Red Chromatic Coordinate R/(R+G+B)';
+                case 'Blue Chromatic Coordinate'
+                    cmap = flipud(cmocean('ice'));
+                    cbarLabel = 'Blue Chromatic Coordinate B/(R+G+B)';
+                otherwise
+                    cmap = func_dpcolor();
+                    cbarLabel = 'CIELAB Lightness (L*) / 100';
+            end
+        end
+
+        function updateIndexDisplay(app, applyMask)
+            if nargin < 2
+                applyMask = false;
+            end
+
+            if isempty(app.img_color_corrected)
+                return;
+            end
+
+            [selectedIndexImg, ~, ~] = app.getSelectedIndexImage();
+            [cmap, cbarLabel] = app.getSelectedIndexColormap();
+            app.currentIndexMap = selectedIndexImg;
+            app.selectedIndexName = app.IndexDropDown.Value;
+
+            cla(app.LightnessAxes);
+            if applyMask && ~isempty(app.mask)
+                maskedIndex = selectedIndexImg;
+                maskedIndex(~app.mask) = NaN;
+                imagesc(app.LightnessAxes, maskedIndex, 'AlphaData', ~isnan(maskedIndex));
+            else
+                imagesc(app.LightnessAxes, selectedIndexImg);
+            end
+            % Remove colorbars explicitly for the axes (prevents persistent colorbar)
+            try
+                colorbar(app.LightnessAxes, 'off');
+            catch
+                % ignore if no colorbar or unsupported
+            end
+            try
+                colorbar(app.RGBAxes, 'off');
+            catch
+            end
+
+            % Also remove any ColorBar objects in the UIFigure just in case
+            try
+                cbs = findall(app.iCalibrateImagesUIFigure, 'Type', 'ColorBar');
+                if ~isempty(cbs)
+                    delete(cbs);
+                end
+            catch
+                % ignore errors here
+            end
+            colormap(app.LightnessAxes, cmap);
+            axis(app.LightnessAxes, 'off');
+            cb = colorbar(app.LightnessAxes);
+            cb.Label.String = cbarLabel;
+            cb.Location = "southoutside";
+            clim(app.LightnessAxes, [0 1]);
+            app.LightnessAxes.Title.String = app.selectedIndexName;
+            app.LightnessAxes.Title.Visible = 'on';
+            
+            % Draw scale bar Lightness images
+            imgSize = size(app.img_color_corrected);
+            scaleBarLength_cm = 10; % 10 cm scale bar
+            scaleBarLength_px = scaleBarLength_cm * app.scaleInfo.pixelsPerCm;
+
+            % Scale bar position (bottom-left with margins)
+            margin = 200;
+            scaleBarX = margin;
+            scaleBarY = imgSize(1) - margin;
+
+            % Draw scale bar
+            hold(app.LightnessAxes, "on");
+            plot(app.LightnessAxes, [scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
+                'k-', 'LineWidth', 4);
+
+            % Add text label
+            textOffset = 150;
+            text(app.LightnessAxes, scaleBarX + scaleBarLength_px + textOffset, scaleBarY, ...
+                sprintf('%d cm', scaleBarLength_cm), ...
+                'Color', 'white', 'FontWeight', 'bold', ...
+                'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+                'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
+            hold(app.LightnessAxes, "off");
+        end
+
         function processScale(app)
             if isempty(app.scaleLine) || ~isvalid(app.scaleLine)
                 return;
@@ -98,15 +231,15 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                     sprintf('%d cm', scaleBarLength_cm), ...
                     'Color', 'white', 'FontWeight', 'bold', ...
                     'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
-                    'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
                 text(app.LightnessAxes, scaleBarX + scaleBarLength_px + textOffset, scaleBarY, ...
                     sprintf('%d cm', scaleBarLength_cm), ...
                     'Color', 'white', 'FontWeight', 'bold', ...
                     'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
-                    'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
                 hold(app.RGBAxes, "off");
                 hold(app.LightnessAxes, "off");
-
+                
                 if app.roiDrawn
                     statsText = sprintf('%s\n✓ ROI drawn\n', statsText);
                     statsText = sprintf('%s\nReady to calculate statistics.', statsText);
@@ -122,6 +255,12 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                 app.scaleDrawn = false;
                 app.CalculateStatisticsButton.Enable = 'off';
             end
+            % Remove the interactive line from the axes now that we stored its data
+            if ~isempty(app.scaleLine) && isvalid(app.scaleLine)
+                delete(app.scaleLine);
+            end
+            % app.scaleLine = [];
+
         end
         
         % Mark ROI drawing as complete
@@ -168,6 +307,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             imshow(raw2rgb(app.dngFilePath),'Parent', app.RGBAxes);
             
             % enable next step
+            app.IndexDropDown.Enable = 'on';
             app.CalibrateColorsButton.Enable = 'on';
         end
 
@@ -232,7 +372,8 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
 
                 if autoDetected
                     displayChart(chart,"Parent", app.RGBAxes);
-                    answer = uiconfirm(app.UIFigure, ...
+                    app.iCalibrateImagesUIFigure.Name = sprintf("iCalibrateImages");
+                    answer = uiconfirm(app.iCalibrateImagesUIFigure, ...
                         'Was the color checker successfully identified?', ...
                         'Color Checker Verification', ...
                         'Options', {'Yes', 'No - Pick manually'}, ...
@@ -244,10 +385,10 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                 end
 
                 if ~autoDetected
-                    app.TextArea.Value = 'Manual color checker selection in progress. Double click and select corners: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right)';
+                    app.TextArea.Value = 'Manual color checker selection in progress. Single click to select corners and double click to confirm: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right). You can also drag to move points.';
                     drawnow;
                     % Get app window position [left bottom width height]
-                    appPos = app.UIFigure.Position;
+                    appPos = app.iCalibrateImagesUIFigure.Position;
 
                     % Desired size for manual figure (80% of app size)
                     figW = round(0.8 * appPos(3));
@@ -267,7 +408,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                     imshow(img_for_calibration, 'Parent', ax);
                     % figManual = imshow(img_for_calibration, 'Parent', app.RGBAxes);
 
-                    ax.Title.String = 'Double click and select corners: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right)';
+                    ax.Title.String = 'Single click to select corners and double click to confirm: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right)';
                     
                     uialert(figManual, 'Draw points on the four corner fiducials (+).', 'Manual Registration');
                     
@@ -289,7 +430,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                                     bluishGreenPoint.Position];
                     
                     chart = colorChecker(img_for_calibration, "RegistrationPoints", cornerPoints);
-                    displayChart(chart, 'Parent', app.RGBAxes);
+                    % displayChart(chart, 'Parent', app.RGBAxes);
                     close(figManual);
                     app.TextArea.Value = 'Color checker registered using manual points.';
                 end
@@ -308,15 +449,8 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                 % app.RGBAxes.Title.String = 'Color Calibrated RGB Image';
                 % app.RGBAxes.Title.Visible = 'on';
 
-                % Display lightness image
-                cla(app.LightnessAxes);
-                imagesc(app.LightnessAxes, app.lightnessImg);
-                colormap(app.LightnessAxes, func_dpcolor());
-                axis(app.LightnessAxes, 'off');
-                cb = colorbar(app.LightnessAxes);
-                cb.Label.String = 'CIELAB Lightness (L*) / 100';
-                cb.Location = "southoutside";
-                clim(app.LightnessAxes, [0 1]);
+                % Display selected index image (default dropdown is Lightness)
+                app.updateIndexDisplay(false);
                 
                 % linkaxes([app.RGBAxes app.LightnessAxes]);
                 
@@ -329,7 +463,8 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                 app.scaleDrawn = false;
                 % app.CalculateStatisticsButton.Enable = 'off';
                 
-                app.TextArea.Value = 'Color calibration complete. Switch tabs to check the calibrated image and lightness values.';
+                app.TextArea.Value = sprintf('Color calibration complete. Current index: %s.', app.IndexDropDown.Value);
+              
                 
             catch ME
                 app.TextArea.Value = sprintf('Error: %s', ME.message);
@@ -349,7 +484,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
 
             % Switch to RGB tab
             app.TabGroup.SelectedTab = app.RGBTab;
-            app.TextArea.Value = 'Clik and hold to draw a line of known distance. Double-click to finish.';
+            app.TextArea.Value = 'Click and hold to draw a line of known distance. Double-click to finish.';
 
             % Draw line
             app.scaleLine = drawline(app.RGBAxes, 'Color', 'c', 'LineWidth', 2, 'Label', 'Scale Reference');
@@ -397,37 +532,72 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             try
                 % Get mask
                 app.mask = createMask(app.roiPolygon);
+                app.updateIndexDisplay(false);
+                [selectedIndexImg, ~, ~] = app.getSelectedIndexImage();
+                [cmap, cbarLabel] = app.getSelectedIndexColormap();
 
                 % Calculate statistics
-                lightnessROI = app.lightnessImg .* app.mask;
-                lightnessROI(~app.mask) = NaN;
+                indexROI = selectedIndexImg .* app.mask;
+                indexROI(~app.mask) = NaN;
 
                 app.roiData.mask = app.mask;
                 app.roiData.roiPosition = app.roiPolygon.Position;
-                app.roiData.meanLightness = mean(lightnessROI(app.mask), 'omitnan');
-                app.roiData.stdLightness = std(lightnessROI(app.mask), 'omitnan');
-                app.roiData.minLightness = min(lightnessROI(app.mask));
-                app.roiData.maxLightness = max(lightnessROI(app.mask));
-                app.roiData.lightnessValues = lightnessROI(app.mask);
+                app.roiData.selectedIndex = app.IndexDropDown.Value;
+                app.roiData.meanIndex = mean(indexROI(app.mask), 'omitnan');
+                app.roiData.stdIndex = std(indexROI(app.mask), 'omitnan');
+                app.roiData.minIndex = min(indexROI(app.mask));
+                app.roiData.maxIndex = max(indexROI(app.mask));
+                app.roiData.indexValues = indexROI(app.mask);
                 app.roiData.numPixels = sum(app.mask(:));
 
                 % Add scale information
                 app.roiData.scaleInfo = app.scaleInfo;
                 app.roiData.roiArea_cm2 = app.roiData.numPixels * app.scaleInfo.cmPerPixel^2;
 
-                % Display lightness image
+                % Keep legacy fields for backward compatibility when Lightness is selected
+                if strcmp(app.IndexDropDown.Value, 'Lightness')
+                    app.roiData.meanLightness = app.roiData.meanIndex;
+                    app.roiData.stdLightness = app.roiData.stdIndex;
+                    app.roiData.minLightness = app.roiData.minIndex;
+                    app.roiData.maxLightness = app.roiData.maxIndex;
+                    app.roiData.lightnessValues = app.roiData.indexValues;
+                end
+
+                % Display selected index image
                 cla(app.LightnessAxes);
-                imagesc(app.LightnessAxes, lightnessROI, 'AlphaData', ~isnan(lightnessROI));
-                colormap(app.LightnessAxes, func_dpcolor());
+                % Remove colorbars explicitly for the axes (prevents persistent colorbar)
+                try
+                    colorbar(app.LightnessAxes, 'off');
+                catch
+                    % ignore if no colorbar or unsupported
+                end
+                try
+                    colorbar(app.RGBAxes, 'off');
+                catch
+                end
+    
+                % Also remove any ColorBar objects in the UIFigure just in case
+                try
+                    cbs = findall(app.iCalibrateImagesUIFigure, 'Type', 'ColorBar');
+                    if ~isempty(cbs)
+                        delete(cbs);
+                    end
+                catch
+                    % ignore errors here
+                end
+                imagesc(app.LightnessAxes, indexROI, 'AlphaData', ~isnan(indexROI));
+                colormap(app.LightnessAxes, cmap);
                 axis(app.LightnessAxes, 'off');
-                % cb = colorbar(app.LightnessAxes);
-                % cb.Label.String = 'CIELAB Lightness (L*) / 100';
+                cb = colorbar(app.LightnessAxes);
+                cb.Label.String = cbarLabel;
+                cb.Location = "southoutside";
                 clim(app.LightnessAxes, [0 1]);
-                app.LightnessAxes.Title.String = sprintf('Lightness (Mean: %.4f)', app.roiData.meanLightness);
+                app.LightnessAxes.Title.String = sprintf('%s (Mean: %.4f)', app.IndexDropDown.Value, app.roiData.meanIndex);
                 app.LightnessAxes.Title.Visible = 'on';
 
                 % Update statistics text
-                statsText = sprintf(['=== ROI Lightness Statistics ===\n' ...
+                statsText = sprintf(['=== ROI Index Statistics ===\n' ...
+                    'Index:  %s\n' ...
                     'Mean:   %.4f\n' ...
                     'Std:    %.4f\n' ...
                     'Pixels: %d\n' ...
@@ -437,8 +607,9 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                     'ROI area (cm²): %.2f\n' ...
                     '================================\n' ...
                     '\n✓ Statistics calculated successfully!'], ...
-                    app.roiData.meanLightness, ...
-                    app.roiData.stdLightness, ...
+                    app.roiData.selectedIndex, ...
+                    app.roiData.meanIndex, ...
+                    app.roiData.stdIndex, ...
                     app.roiData.numPixels, ...
                     app.scaleInfo.pixelsPerCm, ...
                     app.scaleInfo.cmPerPixel, ...
@@ -496,23 +667,25 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                     sprintf('%d cm', scaleBarLength_cm), ...
                     'Color', 'white', 'FontWeight', 'bold', ...
                     'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
-                    'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
             end
 
             hold(ax1, 'off');
             title(ax1, 'a) RGB Image with ROI');
 
-            % Lightness
+             % Selected index
             ax2 = nexttile(t);
-            lightnessROI = app.lightnessImg .* app.mask;
-            lightnessROI(~app.mask) = NaN;
-            imagesc(ax2, lightnessROI, 'AlphaData', ~isnan(lightnessROI));
-            colormap(ax2, func_dpcolor());
+            [selectedIndexImg, ~, fileTag] = app.getSelectedIndexImage();
+            [cmap, cbarLabel] = app.getSelectedIndexColormap();
+            indexROI = selectedIndexImg .* app.mask;
+            indexROI(~app.mask) = NaN;
+            imagesc(ax2, indexROI, 'AlphaData', ~isnan(indexROI));
+            colormap(ax2, cmap);
             axis(ax2, 'off');
             cb = colorbar(ax2);
-            cb.Label.String = 'CIELAB Lightness (L*) / 100';
+            cb.Label.String = cbarLabel;
             clim(ax2, [0 1]);
-            title(ax2, sprintf('b) Lightness within ROI (Mean: %.4f)', app.roiData.meanLightness));
+            title(ax2, sprintf('b) %s within ROI (Mean: %.4f)', app.IndexDropDown.Value, app.roiData.meanIndex));
 
             % Add scale bar to lightness image if calibration was done
             if ~isempty(app.scaleInfo)
@@ -532,7 +705,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                     sprintf('%d cm', scaleBarLength_cm), ...
                     'Color', 'white', 'FontWeight', 'bold', ...
                     'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
-                    'BackgroundColor', [0 0 0 0.5], 'EdgeColor', 'white');
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
                 hold(ax2, 'off');
             end
 
@@ -540,8 +713,8 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             axis(ax2, 'image');
 
             % Save figure
-            pngFile = fullfile(outputDir, sprintf('%s_roi_lightness.png', name));
-            pdfFile = fullfile(outputDir, sprintf('%s_roi_lightness.pdf', name));
+            pngFile = fullfile(outputDir, sprintf('%s_roi_%s.png', name, fileTag));
+            pdfFile = fullfile(outputDir, sprintf('%s_roi_%s.pdf', name, fileTag));
             exportgraphics(figExport, pngFile, 'Resolution', 300);
             exportgraphics(figExport, pdfFile, 'Resolution', 300);
             close(figExport);
@@ -556,10 +729,10 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
                 pngFile, roiDataFile);
         end
 
-        % Button pushed function: RestAllButton
-        function RestAllButtonPushed(app, event)
+        % Button pushed function: ResetAllButton
+        function ResetAllButtonPushed(app, event)
             % Confirm reset
-            selection = uiconfirm(app.UIFigure, ...
+            selection = uiconfirm(app.iCalibrateImagesUIFigure, ...
                 'This will clear all data and reset the application. Continue?', ...
                 'Confirm Reset', ...
                 'Options', {'Yes', 'No'}, ...
@@ -603,6 +776,27 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             app.LightnessAxes.XTick = [];
             app.LightnessAxes.YTick = [];
 
+            % Remove colorbars explicitly for the axes (prevents persistent colorbar)
+            try
+                colorbar(app.LightnessAxes, 'off');
+            catch
+                % ignore if no colorbar or unsupported
+            end
+            try
+                colorbar(app.RGBAxes, 'off');
+            catch
+            end
+
+            % Also remove any ColorBar objects in the UIFigure just in case
+            try
+                cbs = findall(app.iCalibrateImagesUIFigure, 'Type', 'ColorBar');
+                if ~isempty(cbs)
+                    delete(cbs);
+                end
+            catch
+                % ignore errors here
+            end
+
             % Reset button states
             app.CalibrateColorsButton.Enable = 'off';
             app.DrawROIButton.Enable = 'off';
@@ -616,6 +810,35 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             % Switch to RGB tab
             app.TabGroup.SelectedTab = app.RGBTab;
         end
+
+        % Value changed function: IndexDropDown
+        function IndexDropDownValueChanged(app, event)
+            value = app.IndexDropDown.Value;
+
+            if isempty(app.img_color_corrected)
+                app.TextArea.Value = sprintf('Selected index: %s. Load and calibrate an image now.', value);
+                return;
+            end
+
+            if app.roiDrawn && ~isempty(app.roiPolygon) && isvalid(app.roiPolygon) && app.scaleDrawn
+                app.CalculateStatisticsButtonPushed([]);
+            else
+                app.updateIndexDisplay(false);
+                app.TextArea.Value = sprintf('Index switched to: %s', value);
+            end
+            
+        end
+
+        % Callback function
+        function IndicesDropDownOpening(app, event)
+            
+        end
+
+        % Callback function
+        function IndicesDropDownClicked(app, event)
+            item = event.InteractionInformation.Item;
+            
+        end
     end
 
     % Component initialization
@@ -627,71 +850,107 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             % Get the file path for locating images
             pathToMLAPP = fileparts(mfilename('fullpath'));
 
-            % Create UIFigure and hide until all components are created
-            app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [100 100 1196 669];
-            app.UIFigure.Name = 'MATLAB App';
+            % Create iCalibrateImagesUIFigure and hide until all components are created
+            app.iCalibrateImagesUIFigure = uifigure('Visible', 'off');
+            app.iCalibrateImagesUIFigure.Position = [100 100 1196 669];
+            app.iCalibrateImagesUIFigure.Name = 'iCalibrateImages';
+            app.iCalibrateImagesUIFigure.Icon = fullfile(pathToMLAPP, 'resources', 'FieldImageCalibrationColorApp.png');
+            app.iCalibrateImagesUIFigure.Theme = 'light';
+
+            % Create GridLayout
+            app.GridLayout = uigridlayout(app.iCalibrateImagesUIFigure);
+            app.GridLayout.ColumnWidth = {'4x', 65, '2.1x', '1.8x', '1x', '1x', '1x', '2x'};
+            app.GridLayout.RowHeight = {'1x', 80, 22};
+            app.GridLayout.RowSpacing = 9.5;
+            app.GridLayout.Padding = [10 9.5 10 9.5];
 
             % Create Panel
-            app.Panel = uipanel(app.UIFigure);
-            app.Panel.Position = [41 26 302 622];
+            app.Panel = uipanel(app.GridLayout);
+            app.Panel.Layout.Row = [1 2];
+            app.Panel.Layout.Column = 1;
 
             % Create SelectImageButton
             app.SelectImageButton = uibutton(app.Panel, 'push');
             app.SelectImageButton.ButtonPushedFcn = createCallbackFcn(app, @SelectImageButtonPushed, true);
-            app.SelectImageButton.Position = [46 574 209 39];
+            app.SelectImageButton.FontSize = 14;
+            app.SelectImageButton.Position = [46 571 209 39];
             app.SelectImageButton.Text = 'Select Image';
 
             % Create CalibrateColorsButton
             app.CalibrateColorsButton = uibutton(app.Panel, 'push');
             app.CalibrateColorsButton.ButtonPushedFcn = createCallbackFcn(app, @CalibrateColorsButtonPushed, true);
+            app.CalibrateColorsButton.FontSize = 14;
             app.CalibrateColorsButton.Enable = 'off';
-            app.CalibrateColorsButton.Position = [46 524 209 39];
+            app.CalibrateColorsButton.Position = [46 491 209 39];
             app.CalibrateColorsButton.Text = 'Calibrate Colors';
 
             % Create DrawScaleBarButton
             app.DrawScaleBarButton = uibutton(app.Panel, 'push');
             app.DrawScaleBarButton.ButtonPushedFcn = createCallbackFcn(app, @DrawScaleBarButtonPushed, true);
+            app.DrawScaleBarButton.FontSize = 14;
             app.DrawScaleBarButton.Enable = 'off';
-            app.DrawScaleBarButton.Position = [46 474 209 39];
+            app.DrawScaleBarButton.Position = [46 441 209 39];
             app.DrawScaleBarButton.Text = 'Draw Scale Bar';
 
             % Create DrawROIButton
             app.DrawROIButton = uibutton(app.Panel, 'push');
             app.DrawROIButton.ButtonPushedFcn = createCallbackFcn(app, @DrawROIButtonPushed, true);
+            app.DrawROIButton.FontSize = 14;
             app.DrawROIButton.Enable = 'off';
-            app.DrawROIButton.Position = [46 424 209 39];
+            app.DrawROIButton.Position = [46 391 209 39];
             app.DrawROIButton.Text = 'Draw ROI';
 
             % Create CalculateStatisticsButton
             app.CalculateStatisticsButton = uibutton(app.Panel, 'push');
             app.CalculateStatisticsButton.ButtonPushedFcn = createCallbackFcn(app, @CalculateStatisticsButtonPushed, true);
+            app.CalculateStatisticsButton.FontSize = 14;
             app.CalculateStatisticsButton.Enable = 'off';
-            app.CalculateStatisticsButton.Position = [46 374 209 39];
+            app.CalculateStatisticsButton.Position = [46 341 209 39];
             app.CalculateStatisticsButton.Text = 'Calculate Statistics';
 
             % Create SaveResultsButton
             app.SaveResultsButton = uibutton(app.Panel, 'push');
             app.SaveResultsButton.ButtonPushedFcn = createCallbackFcn(app, @SaveResultsButtonPushed, true);
+            app.SaveResultsButton.FontSize = 14;
             app.SaveResultsButton.Enable = 'off';
-            app.SaveResultsButton.Position = [46 324 209 39];
+            app.SaveResultsButton.Position = [46 291 209 39];
             app.SaveResultsButton.Text = 'Save Results';
 
-            % Create RestAllButton
-            app.RestAllButton = uibutton(app.Panel, 'push');
-            app.RestAllButton.ButtonPushedFcn = createCallbackFcn(app, @RestAllButtonPushed, true);
-            app.RestAllButton.BackgroundColor = [1 1 0];
-            app.RestAllButton.Position = [46 274 209 39];
-            app.RestAllButton.Text = 'Rest All';
+            % Create ResetAllButton
+            app.ResetAllButton = uibutton(app.Panel, 'push');
+            app.ResetAllButton.ButtonPushedFcn = createCallbackFcn(app, @ResetAllButtonPushed, true);
+            app.ResetAllButton.BackgroundColor = [1 1 0];
+            app.ResetAllButton.FontSize = 14;
+            app.ResetAllButton.Position = [46 241 209 39];
+            app.ResetAllButton.Text = 'Reset All';
 
             % Create TextArea
             app.TextArea = uitextarea(app.Panel);
-            app.TextArea.Position = [16 22 271 240];
+            app.TextArea.FontSize = 14;
+            app.TextArea.Position = [16 19 269 204];
             app.TextArea.Value = {'Hi, this is an app to calibrate and postprocess field images. If you have any questions, please do not hesitate to contact me (Shunan Feng: shunan.feng@envs.au.dk).'};
 
+            % Create IndexDropDownLabel
+            app.IndexDropDownLabel = uilabel(app.Panel);
+            app.IndexDropDownLabel.HorizontalAlignment = 'right';
+            app.IndexDropDownLabel.FontSize = 14;
+            app.IndexDropDownLabel.Enable = 'off';
+            app.IndexDropDownLabel.Position = [46 541 39 22];
+            app.IndexDropDownLabel.Text = 'Index';
+
+            % Create IndexDropDown
+            app.IndexDropDown = uidropdown(app.Panel);
+            app.IndexDropDown.Items = {'Lightness', 'Red Chromatic Coordinate', 'Green Chromatic Coordinate', 'Blue Chromatic Coordinate'};
+            app.IndexDropDown.ValueChangedFcn = createCallbackFcn(app, @IndexDropDownValueChanged, true);
+            app.IndexDropDown.Enable = 'off';
+            app.IndexDropDown.FontSize = 14;
+            app.IndexDropDown.Position = [100 538 155 22];
+            app.IndexDropDown.Value = 'Lightness';
+
             % Create TabGroup
-            app.TabGroup = uitabgroup(app.UIFigure);
-            app.TabGroup.Position = [428 119 736 529];
+            app.TabGroup = uitabgroup(app.GridLayout);
+            app.TabGroup.Layout.Row = 1;
+            app.TabGroup.Layout.Column = [3 8];
 
             % Create RGBTab
             app.RGBTab = uitab(app.TabGroup);
@@ -703,48 +962,64 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
             app.RGBAxes.YTick = [];
             app.RGBAxes.Position = [1 1 703 505];
 
-            % Create LightnessTab
-            app.LightnessTab = uitab(app.TabGroup);
-            app.LightnessTab.Title = 'Lightness';
+            % Create IndexTab
+            app.IndexTab = uitab(app.TabGroup);
+            app.IndexTab.Title = 'Index';
 
             % Create LightnessAxes
-            app.LightnessAxes = uiaxes(app.LightnessTab);
+            app.LightnessAxes = uiaxes(app.IndexTab);
             app.LightnessAxes.XTick = [];
             app.LightnessAxes.YTick = [];
             app.LightnessAxes.Position = [1 1 703 505];
 
             % Create Image
-            app.Image = uiimage(app.UIFigure);
-            app.Image.Position = [544 32 150 68];
+            app.Image = uiimage(app.GridLayout);
+            app.Image.Layout.Row = 2;
+            app.Image.Layout.Column = 3;
             app.Image.ImageSource = fullfile(pathToMLAPP, 'resources', 'aulogo_uk_var2_blue.png');
 
             % Create Image2
-            app.Image2 = uiimage(app.UIFigure);
-            app.Image2.Position = [884 32 99 72];
+            app.Image2 = uiimage(app.GridLayout);
+            app.Image2.Layout.Row = 2;
+            app.Image2.Layout.Column = 7;
             app.Image2.ImageSource = fullfile(pathToMLAPP, 'resources', 'DP logo FINAL TRANSPARENT BACKGROUND.png');
 
             % Create Image3
-            app.Image3 = uiimage(app.UIFigure);
-            app.Image3.Position = [805 32 80 68];
+            app.Image3 = uiimage(app.GridLayout);
+            app.Image3.Layout.Row = 2;
+            app.Image3.Layout.Column = 6;
             app.Image3.ImageSource = fullfile(pathToMLAPP, 'resources', 'SnowPI_logo_portrait_tagline_white_RGB.png');
 
             % Create Image4
-            app.Image4 = uiimage(app.UIFigure);
-            app.Image4.Position = [983 32 181 68];
+            app.Image4 = uiimage(app.GridLayout);
+            app.Image4.Layout.Row = 2;
+            app.Image4.Layout.Column = 8;
             app.Image4.ImageSource = fullfile(pathToMLAPP, 'resources', 'LOGO_ERC-FLAG_EU-no text.png');
 
             % Create Image5
-            app.Image5 = uiimage(app.UIFigure);
-            app.Image5.Position = [694 32 112 74];
+            app.Image5 = uiimage(app.GridLayout);
+            app.Image5.Layout.Row = 2;
+            app.Image5.Layout.Column = 5;
             app.Image5.ImageSource = fullfile(pathToMLAPP, 'resources', 'NNF_Logo_Vertical_Blue-1.png');
 
             % Create Label
-            app.Label = uilabel(app.UIFigure);
-            app.Label.Position = [866 -4 289 31];
+            app.Label = uihyperlink(app.GridLayout);
+            app.Label.HorizontalAlignment = 'right';
+            app.Label.FontWeight = 'normal';
+            app.Label.FontColor = [0 0 0];
+            app.Label.Layout.Row = 3;
+            app.Label.Layout.Column = [6 8];
+            app.Label.URL = 'https://github.com/glacier-lab/Field-Image-Calibration';
             app.Label.Text = 'https://github.com/glacier-lab/Field-Image-Calibration';
 
+            % Create Image6
+            app.Image6 = uiimage(app.GridLayout);
+            app.Image6.Layout.Row = 2;
+            app.Image6.Layout.Column = 4;
+            app.Image6.ImageSource = fullfile(pathToMLAPP, 'resources', 'villum_fonden_logo_sort.png');
+
             % Show the figure after all components are created
-            app.UIFigure.Visible = 'on';
+            app.iCalibrateImagesUIFigure.Visible = 'on';
         end
     end
 
@@ -752,13 +1027,13 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = FieldImageColorCalibration
+        function app = iCalibrateImages
 
             % Create UIFigure and components
             createComponents(app)
 
             % Register the app with App Designer
-            registerApp(app, app.UIFigure)
+            registerApp(app, app.iCalibrateImagesUIFigure)
 
             if nargout == 0
                 clear app
@@ -769,7 +1044,7 @@ classdef FieldImageColorCalibration < matlab.apps.AppBase
         function delete(app)
 
             % Delete UIFigure when app is deleted
-            delete(app.UIFigure)
+            delete(app.iCalibrateImagesUIFigure)
         end
     end
 end

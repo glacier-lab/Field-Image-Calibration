@@ -47,30 +47,6 @@ classdef iCalibrateImages < matlab.apps.AppBase
     
     methods (Access = private)
 
-        function addScaleBarOverlay(app, targetAxes)
-            if isempty(app.scaleInfo) || ~isfield(app.scaleInfo, 'pixelsPerCm')
-                return;
-            end
-
-            imgSize = size(app.img_color_corrected);
-            scaleBarLength_cm = 10;
-            scaleBarLength_px = scaleBarLength_cm * app.scaleInfo.pixelsPerCm;
-            margin = 200;
-            scaleBarX = margin;
-            scaleBarY = imgSize(1) - margin;
-            textOffset = 150;
-
-            hold(targetAxes, "on");
-            plot(targetAxes, [scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
-                'k-', 'LineWidth', 4);
-            text(targetAxes, scaleBarX + scaleBarLength_px + textOffset, scaleBarY, ...
-                sprintf('%d cm', scaleBarLength_cm), ...
-                'Color', 'white', 'FontWeight', 'bold', ...
-                'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
-                'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
-            hold(targetAxes, "off");
-        end
-
         function [selectedIndexImg, indexLabel, fileTag] = getSelectedIndexImage(app)
             rgb = app.img_color_corrected;
             rgbSum = sum(rgb, 3);
@@ -150,6 +126,20 @@ classdef iCalibrateImages < matlab.apps.AppBase
             catch
                 % ignore if no colorbar or unsupported
             end
+            try
+                colorbar(app.RGBAxes, 'off');
+            catch
+            end
+
+            % Also remove any ColorBar objects in the UIFigure just in case
+            try
+                cbs = findall(app.iCalibrateImagesUIFigure, 'Type', 'ColorBar');
+                if ~isempty(cbs)
+                    delete(cbs);
+                end
+            catch
+                % ignore errors here
+            end
             colormap(app.LightnessAxes, cmap);
             axis(app.LightnessAxes, 'off');
             cb = colorbar(app.LightnessAxes);
@@ -158,9 +148,41 @@ classdef iCalibrateImages < matlab.apps.AppBase
             clim(app.LightnessAxes, [0 1]);
             app.LightnessAxes.Title.String = app.selectedIndexName;
             app.LightnessAxes.Title.Visible = 'on';
+            
+           % --- Safe scale-bar drawing: only if scaleInfo present and scaleDrawn ---
+            if ~isempty(app.scaleInfo) && isprop(app, 'scaleDrawn') && app.scaleDrawn
+                imgSize = size(app.img_color_corrected);
+                % default 10 cm scale bar
+                scaleBarLength_cm = 10;
+                % compute px length (guard again in case pixelsPerCm missing)
+                if isfield(app.scaleInfo, 'pixelsPerCm') && ~isempty(app.scaleInfo.pixelsPerCm) && app.scaleInfo.pixelsPerCm > 0
+                    scaleBarLength_px = scaleBarLength_cm * app.scaleInfo.pixelsPerCm;
 
-            % Keep scale bar visible when index view is refreshed.
-            app.addScaleBarOverlay(app.LightnessAxes);
+                    % Scale bar position (bottom-left with margins)
+                    margin = 200;
+                    scaleBarX = margin;
+                    scaleBarY = imgSize(1) - margin;
+
+                    % Remove any previous scale bar objects on this axes (optional)
+                    oldScale = findobj(app.LightnessAxes, '-regexp', 'Tag', '^ScaleBar');
+                    if ~isempty(oldScale)
+                        delete(oldScale);
+                    end
+
+                    % Draw scale bar and label with Tags so they persist across updates
+                    hold(app.LightnessAxes, 'on');
+                    hLine = plot(app.LightnessAxes, [scaleBarX, scaleBarX + scaleBarLength_px], ...
+                        [scaleBarY, scaleBarY], 'k-', 'LineWidth', 4);
+                    hLine.Tag = 'ScaleBar_Lightness';
+                    hTxt = text(app.LightnessAxes, scaleBarX + scaleBarLength_px + 150, scaleBarY, ...
+                        sprintf('%d cm', scaleBarLength_cm), ...
+                        'Color', 'white', 'FontWeight', 'bold', ...
+                        'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+                        'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
+                    hTxt.Tag = 'ScaleBarLabel_Lightness';
+                    hold(app.LightnessAxes, 'off');
+                end
+            end
         end
 
         function processScale(app)
@@ -196,9 +218,38 @@ classdef iCalibrateImages < matlab.apps.AppBase
                     'Scale: %.2f pixels/cm\n' ...
                     'cm per pixel: %.4f\n'], ...
                     pixelLength, realDistance_cm, pixelsPerCm, app.scaleInfo.cmPerPixel);
-                % Draw scale bar on both RGB and index images.
-                app.addScaleBarOverlay(app.RGBAxes);
-                app.addScaleBarOverlay(app.LightnessAxes);
+                % Draw scale bar on both RGB and Lightness images
+                imgSize = size(app.img_color_corrected);
+                scaleBarLength_cm = 10; % 10 cm scale bar
+                scaleBarLength_px = scaleBarLength_cm * app.scaleInfo.pixelsPerCm;
+
+                % Scale bar position (bottom-left with margins)
+                margin = 200;
+                scaleBarX = margin;
+                scaleBarY = imgSize(1) - margin;
+
+                % Draw scale bar
+                hold(app.RGBAxes, "on");
+                plot(app.RGBAxes, [scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
+                    'k-', 'LineWidth', 4);
+                hold(app.LightnessAxes, "on");
+                plot(app.LightnessAxes, [scaleBarX, scaleBarX + scaleBarLength_px], [scaleBarY, scaleBarY], ...
+                    'k-', 'LineWidth', 4);
+
+                % Add text label
+                textOffset = 150;
+                text(app.RGBAxes, scaleBarX + scaleBarLength_px + textOffset, scaleBarY, ...
+                    sprintf('%d cm', scaleBarLength_cm), ...
+                    'Color', 'white', 'FontWeight', 'bold', ...
+                    'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
+                text(app.LightnessAxes, scaleBarX + scaleBarLength_px + textOffset, scaleBarY, ...
+                    sprintf('%d cm', scaleBarLength_cm), ...
+                    'Color', 'white', 'FontWeight', 'bold', ...
+                    'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+                    'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
+                hold(app.RGBAxes, "off");
+                hold(app.LightnessAxes, "off");
                 
                 if app.roiDrawn
                     statsText = sprintf('%s\n✓ ROI drawn\n', statsText);
@@ -555,9 +606,6 @@ classdef iCalibrateImages < matlab.apps.AppBase
                 app.LightnessAxes.Title.String = sprintf('%s (Mean: %.4f)', app.IndexDropDown.Value, app.roiData.meanIndex);
                 app.LightnessAxes.Title.Visible = 'on';
 
-                % Keep scale bar visible after ROI/statistics view updates.
-                app.addScaleBarOverlay(app.LightnessAxes);
-
                 % Update statistics text
                 statsText = sprintf(['=== ROI Index Statistics ===\n' ...
                     'Index:  %s\n' ...
@@ -743,7 +791,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             try
                 colorbar(app.LightnessAxes, 'off');
             catch
-                % ignore if no colorbar or unsupported
+                %IndicesDropDownClicked(app); ignore if no colorbar or unsupported
             end
             try
                 colorbar(app.RGBAxes, 'off');
@@ -783,21 +831,12 @@ classdef iCalibrateImages < matlab.apps.AppBase
                 return;
             end
 
-            if app.roiDrawn && ~isempty(app.roiPolygon) && isvalid(app.roiPolygon) && app.scaleDrawn
-                app.CalculateStatisticsButtonPushed([]);
-            else
-                app.updateIndexDisplay(false);
-                app.TextArea.Value = sprintf('Index switched to: %s', value);
-            end
+            app.updateIndexDisplay(false);
+            app.TextArea.Value = sprintf('Index switched to: %s', value);
             
         end
 
-        % Callback function
-        function IndicesDropDownOpening(app, event)
-            
-        end
-
-        % Callback function
+        % Clicked callback: IndexDropDown
         function IndicesDropDownClicked(app, event)
             item = event.InteractionInformation.Item;
             
@@ -907,6 +946,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.IndexDropDown.ValueChangedFcn = createCallbackFcn(app, @IndexDropDownValueChanged, true);
             app.IndexDropDown.Enable = 'off';
             app.IndexDropDown.FontSize = 14;
+            app.IndexDropDown.ClickedFcn = createCallbackFcn(app, @IndicesDropDownClicked, true);
             app.IndexDropDown.Position = [100 538 155 22];
             app.IndexDropDown.Value = 'Lightness';
 
