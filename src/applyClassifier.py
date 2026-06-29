@@ -22,6 +22,9 @@ import pickle
 from typing import Dict, List
 
 import cv2
+import matplotlib.pyplot as plt
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.patches import Patch
 import numpy as np
 from scipy.io import loadmat, savemat
 
@@ -76,7 +79,80 @@ def get_roi_mask(mat_data: Dict, h: int, w: int) -> np.ndarray:
     return roi_mask
 
 
-def classify_mat_file(mat_path: str, clf, class_names: List[str], threshold: float):
+def save_prediction_plot(
+    img_rgb: np.ndarray,
+    roi_mask: np.ndarray,
+    pred_map: np.ndarray,
+    class_names: List[str],
+    out_base: str,
+):
+    n = len(class_names)
+    n_colors_needed = n + 1
+
+    colors = np.array(
+        [
+            [0.0, 0.8, 0.0],
+            [0.0, 0.2, 1.0],
+            [1.0, 0.3, 0.0],
+            [0.8, 0.0, 0.8],
+            [0.2, 0.8, 0.8],
+            [0.8, 0.8, 0.2],
+            [0.6, 0.6, 0.6],
+        ],
+        dtype=np.float32,
+    )
+    if n_colors_needed > len(colors):
+        extra = np.random.RandomState(0).rand(n_colors_needed - len(colors), 3).astype(np.float32)
+        colors = np.vstack([colors, extra])
+
+    pred_map_roi = np.ma.masked_where(~roi_mask, pred_map)
+    cmap = ListedColormap(colors[:n_colors_needed])
+    cmap.set_bad(alpha=0.0)
+    norm = BoundaryNorm(np.arange(-0.5, n_colors_needed + 0.5, 1), n_colors_needed)
+
+    input_rgb_vis = img_rgb.copy()
+    non_roi = ~roi_mask
+    if np.any(non_roi):
+        gray_rgb = np.array([70, 70, 70], dtype=np.float32) / 255.0
+        input_rgb_vis[non_roi] = 0.5 * input_rgb_vis[non_roi] + 0.5 * gray_rgb
+
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.imshow(input_rgb_vis)
+    plt.axis("off")
+    plt.title("Input sRGB (ROI shown)")
+
+    plt.subplot(1, 2, 2)
+    plt.imshow(input_rgb_vis)
+    plt.imshow(pred_map_roi, cmap=cmap, norm=norm, alpha=0.65)
+    plt.axis("off")
+    plt.title("Predicted Classes on sRGB (Unclassified is gray)")
+
+    legend_names = class_names + ["Unclassified"]
+    legend_handles = [
+        Patch(facecolor=colors[i], edgecolor="black", label=legend_names[i])
+        for i in range(n_colors_needed)
+    ]
+    plt.figlegend(
+        handles=legend_handles,
+        loc="lower center",
+        ncol=min(4, n_colors_needed),
+        frameon=False,
+        fontsize=8,
+    )
+    plt.tight_layout()
+    plt.savefig(out_base + ".png", dpi=150, transparent=True)
+    plt.savefig(out_base + ".pdf")
+    plt.close()
+
+
+def classify_mat_file(
+    mat_path: str,
+    out_mat_path: str,
+    clf,
+    class_names: List[str],
+    threshold: float,
+):
     raw = _safe_loadmat(mat_path)
     data = _to_dict(raw)
 
@@ -118,10 +194,13 @@ def classify_mat_file(mat_path: str, clf, class_names: List[str], threshold: flo
 
     max_prob = np.max(probs, axis=1)
     unclassified_band = (max_prob < threshold).astype(np.float32)
+    pred_idx = np.argmax(probs, axis=1).astype(np.int32)
+    pred_idx[max_prob < threshold] = n
 
     classification_image = np.concatenate(
         [probs, unclassified_band[:, None]], axis=1
     ).reshape(h, w, n + 1)
+    pred_map = pred_idx.reshape(h, w)
 
     roi_mask = get_roi_mask(data, h, w)
     if roi_mask.shape == (h, w):
@@ -132,7 +211,11 @@ def classify_mat_file(mat_path: str, clf, class_names: List[str], threshold: flo
     save_data["classification_image"] = classification_image
     save_data["classification_band_names"] = np.array(class_names + ["Unclassified"], dtype=object)
 
-    savemat(mat_path, save_data, do_compression=True)
+    os.makedirs(os.path.dirname(out_mat_path), exist_ok=True)
+    savemat(out_mat_path, save_data, do_compression=True)
+
+    out_base = os.path.splitext(out_mat_path)[0] + "_classification"
+    save_prediction_plot(img_rgb, roi_mask, pred_map, class_names, out_base)
 
 
 def main():
@@ -141,6 +224,10 @@ def main():
 
     default_mat_folder = r"C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\calibrated_output"
     mat_folder = input(f"MAT folder [{default_mat_folder}]: ").strip() or default_mat_folder
+
+    default_output_folder = os.path.join(mat_folder, "classification_output")
+    output_folder = input(f"Output folder for new MAT + plots [{default_output_folder}]: ").strip() or default_output_folder
+    os.makedirs(output_folder, exist_ok=True)
 
     mat_files = sorted(glob.glob(os.path.join(mat_folder, "*_roi_data.mat")))
     if len(mat_files) == 0:
@@ -161,16 +248,25 @@ def main():
     for i, mat_path in enumerate(mat_files, start=1):
         print(f"[{i}/{len(mat_files)}] {os.path.basename(mat_path)}")
         try:
-            classify_mat_file(mat_path, clf, class_names, threshold)
+            out_mat_path = os.path.join(output_folder, os.path.basename(mat_path))
+            classify_mat_file(
+                mat_path=mat_path,
+                out_mat_path=out_mat_path,
+                clf=clf,
+                class_names=class_names,
+                threshold=threshold,
+            )
             n_ok += 1
         except Exception as exc:
             print(f"  Skipped: {exc}")
             n_skip += 1
 
     print("\nDone.")
-    print(f"Updated files: {n_ok}")
+    print(f"Saved MAT files: {n_ok}")
     print(f"Skipped files: {n_skip}")
+    print(f"Output folder: {output_folder}")
     print("Appended variable name: classification_image")
+    print("Also saved for each file: *_classification.png and *_classification.pdf")
 
 
 if __name__ == "__main__":
