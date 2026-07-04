@@ -60,7 +60,7 @@ def load_model(model_path: str):
 
     clf = model_data["classifier"]
     class_names = list(model_data["class_names"])
-    threshold = float(model_data.get("unclassified_threshold", 0.60))
+    threshold = float(model_data.get("unclassified_threshold", 0.75))
 
     return clf, class_names, threshold
 

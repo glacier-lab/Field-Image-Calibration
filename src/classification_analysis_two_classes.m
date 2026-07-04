@@ -172,16 +172,26 @@ for i = 1:numel(matFiles)
     row.image_name = string(matName);
     row.lightness_roi_mean = overallMean;
     row.lightness_roi_std = overallStd;
-
+    
     row.class_ice_pixels = classCounts(1);
     row.class_ice_cm2 = classAreas(1);
     row.class_ice_lightness_mean = classLMean(1);
     row.class_ice_lightness_std = classLStd(1);
-
+    
     row.class_cryoconite_pixels = classCounts(2);
     row.class_cryoconite_cm2 = classAreas(2);
     row.class_cryoconite_lightness_mean = classLMean(2);
     row.class_cryoconite_lightness_std = classLStd(2);
+    
+    % Fractions of ROI (handle zero ROI pixels)
+    total_roi_pixels = nnz(roiMask);
+    if total_roi_pixels > 0
+        row.cc_frac = classCounts(2) / total_roi_pixels;
+        row.ice_frac = classCounts(1) / total_roi_pixels;
+    else
+        row.cc_frac = NaN;
+        row.ice_frac = NaN;
+    end
 
     if isempty(rows)
         rows = row;
