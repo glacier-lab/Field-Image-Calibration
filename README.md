@@ -2,6 +2,8 @@
 # Field-Image-Calibration
 
 [![Software Repository](https://img.shields.io/badge/iCalibrateImages_v1.0-Windows&macOS&Linux-blue)](https://www.erda.au.dk/archives/9d4f9eedbf4aca9b133d2925df21c6e9/published-archive.html)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21192432.svg)](https://doi.org/10.5281/zenodo.21192432)
+
 
 ## Overview
 
@@ -21,8 +23,28 @@ Available for **Windows**, **macOS**, and **Linux**. Precompiled installation pa
 
 The repository also includes sample images that demonstrate the calibration workflow and can be used to validate software performance.
 
-<!-- ## Citation
+## Citation
 
-If you use **iCalibrateImages** in your research, please cite the associated publication (if available). -->
+If you use **iCalibrateImages** in your research, please cite the associated publication.
+
+```markdown
+Shunan Feng (2026) “glacier-lab/Field-Image-Calibration: iCalibrateImages”. Zenodo. doi:10.5281/zenodo.21192432.
+```
+
+Latex
+```
+@software{shunan_feng_2026_21192432,
+  author       = {Shunan Feng},
+  title        = {glacier-lab/Field-Image-Calibration:
+                   iCalibrateImages
+                  },
+  month        = jul,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0-beta},
+  doi          = {10.5281/zenodo.21192432},
+  url          = {https://doi.org/10.5281/zenodo.21192432},
+}
+```
 
 
