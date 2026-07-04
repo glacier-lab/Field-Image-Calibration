@@ -237,6 +237,11 @@ def main():
         raise FileNotFoundError(f"No MAT files found in: {mat_folder}")
 
     clf, class_names, threshold = load_model(model_path)
+    # override threshold if user wants to specify a different value
+
+    user_threshold = input(f"Enter threshold [{threshold:.3f}]: ").strip()
+    if user_threshold:
+        threshold = float(user_threshold)
 
     print(f"Found {len(mat_files)} MAT files.")
     print(f"Using threshold: {threshold:.3f}")
