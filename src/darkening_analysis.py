@@ -25,6 +25,17 @@ df = df.dropna(subset=["Total Ancylomena cells [mL-1]", "Lightness values", "cc_
 df["cell_log"] = np.log(df["Total Ancylomena cells [mL-1]"])
 df["ice_frac"] = 1 - df["cc_frac"]
 df["algae_per_ice"] = df["Total Ancylomena cells [mL-1]"] * df["ice_frac"]
+
+#%% quick statistics of the data
+print(f"Number of samples: {len(df)}")
+print(f"Mean Lightness: {df['Lightness values'].mean():.4f}")
+print(f"Std Lightness: {df['Lightness values'].std():.4f}")
+print(f"Mean cell concentration: {df['Total Ancylomena cells [mL-1]'].mean():.4f}")
+print(f"Std cell concentration: {df['Total Ancylomena cells [mL-1]'].std():.4f}")
+print(f"mean cryoconite fraction: {df['cc_frac'].mean():.4f}")
+print(f"std cryoconite fraction: {df['cc_frac'].std():.4f}")
+print(f"mean area of roi: {df['Area scraped (cm2) - approx'].mean():.4f} cm2")
+print(f"std area of roi: {df['Area scraped (cm2) - approx'].std():.4f} cm2")
 # %% use a multiple regression model to predict lightness from cell_log and ice_frac and cc frac
 
 mdl = LinearRegression()

@@ -396,7 +396,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
                 end
 
                 if ~autoDetected
-                    app.TextArea.Value = 'Manual color checker selection in progress. Single click to select corners and double click to confirm: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right). You can also drag to move points.';
+                    app.TextArea.Value = 'Manual color checker selection in progress. Single click to select corners and double click to confirm: 1) Black, 2) White, 3) Brown, 4) Bluish Green. You can also drag to move points.';
                     drawnow;
                     % Get app window position [left bottom width height]
                     appPos = app.iCalibrateImagesUIFigure.Position;
@@ -419,7 +419,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
                     imshow(img_for_calibration, 'Parent', ax);
                     % figManual = imshow(img_for_calibration, 'Parent', app.RGBAxes);
 
-                    ax.Title.String = 'Single click to select corners and double click to confirm: 1) Black (top-left), 2) White (top-right), 3) Brown (bottom-left), 4) Bluish Green (bottom-right)';
+                    ax.Title.String = 'Single click to select corners and double click to confirm: 1) Black, 2) White, 3) Brown, 4) Bluish Green';
                     
                     uialert(figManual, 'Draw points on the four corner fiducials (+).', 'Manual Registration');
                     
@@ -605,6 +605,26 @@ classdef iCalibrateImages < matlab.apps.AppBase
                 clim(app.LightnessAxes, [0 1]);
                 app.LightnessAxes.Title.String = sprintf('%s (Mean: %.4f)', app.IndexDropDown.Value, app.roiData.meanIndex);
                 app.LightnessAxes.Title.Visible = 'on';
+
+                % Keep scale bar visible after ROI redraw
+                if ~isempty(app.scaleInfo) && isfield(app.scaleInfo, 'pixelsPerCm') && app.scaleInfo.pixelsPerCm > 0
+                    imgSize = size(app.img_color_corrected);
+                    scaleBarLength_cm = 10;
+                    scaleBarLength_px = scaleBarLength_cm * app.scaleInfo.pixelsPerCm;
+                    margin = 200;
+                    scaleBarX = margin;
+                    scaleBarY = imgSize(1) - margin;
+
+                    hold(app.LightnessAxes, 'on');
+                    plot(app.LightnessAxes, [scaleBarX, scaleBarX + scaleBarLength_px], ...
+                        [scaleBarY, scaleBarY], 'k-', 'LineWidth', 4);
+                    text(app.LightnessAxes, scaleBarX + scaleBarLength_px + 150, scaleBarY, ...
+                        sprintf('%d cm', scaleBarLength_cm), ...
+                        'Color', 'white', 'FontWeight', 'bold', ...
+                        'HorizontalAlignment', 'left', 'VerticalAlignment', 'middle', ...
+                        'BackgroundColor', [0.1 0.1 0.1], 'EdgeColor', 'white');
+                    hold(app.LightnessAxes, 'off');
+                end
 
                 % Update statistics text
                 statsText = sprintf(['=== ROI Index Statistics ===\n' ...
@@ -875,7 +895,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.SelectImageButton = uibutton(app.Panel, 'push');
             app.SelectImageButton.ButtonPushedFcn = createCallbackFcn(app, @SelectImageButtonPushed, true);
             app.SelectImageButton.FontSize = 14;
-            app.SelectImageButton.Position = [46 571 209 39];
+            app.SelectImageButton.Position = [58 570 209 39];
             app.SelectImageButton.Text = 'Select Image';
 
             % Create CalibrateColorsButton
@@ -883,7 +903,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.CalibrateColorsButton.ButtonPushedFcn = createCallbackFcn(app, @CalibrateColorsButtonPushed, true);
             app.CalibrateColorsButton.FontSize = 14;
             app.CalibrateColorsButton.Enable = 'off';
-            app.CalibrateColorsButton.Position = [46 491 209 39];
+            app.CalibrateColorsButton.Position = [58 490 209 39];
             app.CalibrateColorsButton.Text = 'Calibrate Colors';
 
             % Create DrawScaleBarButton
@@ -891,7 +911,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.DrawScaleBarButton.ButtonPushedFcn = createCallbackFcn(app, @DrawScaleBarButtonPushed, true);
             app.DrawScaleBarButton.FontSize = 14;
             app.DrawScaleBarButton.Enable = 'off';
-            app.DrawScaleBarButton.Position = [46 441 209 39];
+            app.DrawScaleBarButton.Position = [58 440 209 39];
             app.DrawScaleBarButton.Text = 'Draw Scale Bar';
 
             % Create DrawROIButton
@@ -899,7 +919,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.DrawROIButton.ButtonPushedFcn = createCallbackFcn(app, @DrawROIButtonPushed, true);
             app.DrawROIButton.FontSize = 14;
             app.DrawROIButton.Enable = 'off';
-            app.DrawROIButton.Position = [46 391 209 39];
+            app.DrawROIButton.Position = [58 390 209 39];
             app.DrawROIButton.Text = 'Draw ROI';
 
             % Create CalculateStatisticsButton
@@ -907,7 +927,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.CalculateStatisticsButton.ButtonPushedFcn = createCallbackFcn(app, @CalculateStatisticsButtonPushed, true);
             app.CalculateStatisticsButton.FontSize = 14;
             app.CalculateStatisticsButton.Enable = 'off';
-            app.CalculateStatisticsButton.Position = [46 341 209 39];
+            app.CalculateStatisticsButton.Position = [58 340 209 39];
             app.CalculateStatisticsButton.Text = 'Calculate Statistics';
 
             % Create SaveResultsButton
@@ -915,7 +935,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.SaveResultsButton.ButtonPushedFcn = createCallbackFcn(app, @SaveResultsButtonPushed, true);
             app.SaveResultsButton.FontSize = 14;
             app.SaveResultsButton.Enable = 'off';
-            app.SaveResultsButton.Position = [46 291 209 39];
+            app.SaveResultsButton.Position = [58 290 209 39];
             app.SaveResultsButton.Text = 'Save Results';
 
             % Create ResetAllButton
@@ -923,13 +943,13 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.ResetAllButton.ButtonPushedFcn = createCallbackFcn(app, @ResetAllButtonPushed, true);
             app.ResetAllButton.BackgroundColor = [1 1 0];
             app.ResetAllButton.FontSize = 14;
-            app.ResetAllButton.Position = [46 241 209 39];
+            app.ResetAllButton.Position = [58 240 209 39];
             app.ResetAllButton.Text = 'Reset All';
 
             % Create TextArea
             app.TextArea = uitextarea(app.Panel);
             app.TextArea.FontSize = 14;
-            app.TextArea.Position = [16 19 269 204];
+            app.TextArea.Position = [28 18 269 204];
             app.TextArea.Value = {'Hi, this is an app to calibrate and postprocess field images. If you have any questions, please do not hesitate to contact me (Shunan Feng: shunan.feng@envs.au.dk).'};
 
             % Create IndexDropDownLabel
@@ -937,7 +957,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.IndexDropDownLabel.HorizontalAlignment = 'right';
             app.IndexDropDownLabel.FontSize = 14;
             app.IndexDropDownLabel.Enable = 'off';
-            app.IndexDropDownLabel.Position = [46 541 39 22];
+            app.IndexDropDownLabel.Position = [58 540 39 22];
             app.IndexDropDownLabel.Text = 'Index';
 
             % Create IndexDropDown
@@ -947,7 +967,7 @@ classdef iCalibrateImages < matlab.apps.AppBase
             app.IndexDropDown.Enable = 'off';
             app.IndexDropDown.FontSize = 14;
             app.IndexDropDown.ClickedFcn = createCallbackFcn(app, @IndicesDropDownClicked, true);
-            app.IndexDropDown.Position = [100 538 155 22];
+            app.IndexDropDown.Position = [112 537 155 22];
             app.IndexDropDown.Value = 'Lightness';
 
             % Create TabGroup
