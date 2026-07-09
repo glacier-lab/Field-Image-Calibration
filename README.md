@@ -8,7 +8,9 @@
 
 ## Overview
 
-This repository contains the source code and supporting resources for **[iCalibrateImages](https://www.erda.au.dk/archives/9d4f9eedbf4aca9b133d2925df21c6e9/published-archive.html)**, a desktop application for color calibration of RAW images using a **ColorChecker** reference target.
+This repository contains the source code and supporting resources for **[iCalibrateImages](https://www.erda.au.dk/archives/9d4f9eedbf4aca9b133d2925df21c6e9/published-archive.html)**, a desktop application for color calibration of RAW images using a **ColorChecker** reference target. 
+It also includes a tutorial on how to capture images for calibration, as well as a random forest classifier for automatic classification of surface ice to derive fractional cryoconite cover..
+The software and repository are part of a manuscript that will be submitted to a peer-reviewed journal.
 
 Accurate color calibration is essential for field photography and image-based scientific analyses, particularly when images are acquired under varying lighting conditions or with different digital cameras. It enables users to standardize image colors, producing consistent and comparable outputs across cameras, sensors, and field campaigns.
 
