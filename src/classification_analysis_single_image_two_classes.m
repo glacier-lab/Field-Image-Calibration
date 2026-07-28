@@ -4,12 +4,13 @@
 % 2) cryoconite (dispersed cryoconite)
 %
 % Saves:
-% - A single 3-panel figure (RGB, Lightness, 2-class map) to ../print
+% - A single 4-panel figure (raw image, calibrated RGB, Lightness, 2-class map) to ../print
 
 clear; clc;
 
 %% User settings
-inputFile = "E:\iCalibrateImages\data\BGO_calibrated_output\classfied_images_SF_75conf\S1-02_before_roi_data.mat";
+inputFile = "C:\Users\au686295\Downloads\S1-02_before_roi_data.mat";
+inputImageFile = "C:\Users\au686295\GitHub\data\AU\BeaImageColor2025\sites\S1-02_before.CR2";
 scaleBarLength_cm = 10;
 
 scriptDir = fileparts(mfilename('fullpath'));
@@ -17,6 +18,9 @@ outputFolder = fullfile(scriptDir, '..', 'print');
 
 if ~isfile(inputFile)
     error("Input MAT file not found: %s", inputFile);
+end
+if ~isfile(inputImageFile)
+    error("Input raw image file not found: %s", inputImageFile);
 end
 if ~isfolder(outputFolder)
     mkdir(outputFolder);
@@ -42,6 +46,8 @@ end
 if ~isfloat(imgRGB)
     imgRGB = im2double(imgRGB);
 end
+
+rawImage = get_raw_image_from_file(inputImageFile, imgRGB);
 
 [h, w, ~] = size(imgRGB);
 
@@ -105,54 +111,59 @@ for c = 1:nClasses
         mergedClassNames{c}, classCounts(c), areaText, classLMean(c), classLStd(c), classCounts(c) / nnz(roiMask));
 end
 
-fig = figure('Visible', 'off', 'Color', 'w', 'Position', [80 80 1500 560]);
-t = tiledlayout(fig, 1, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
+fig = figure('Color', 'w', 'Position', [80 80 1500 1100]);
+t = tiledlayout(fig, 2, 2, 'Padding', 'compact', 'TileSpacing', 'compact');
 
 ax1 = nexttile(t, 1);
-imshow(imgRGB, 'Parent', ax1);
-hold(ax1, 'on');
-draw_roi_boundaries(ax1, roiBoundary, 'y', 2);
-hold(ax1, 'off');
-title(ax1, 'a) RGB with ROI boundary');
+imshow(rawImage, 'Parent', ax1);
+axis(ax1, 'off');
+title(ax1, 'a) Raw image (black-level and white-balance corrected)');
 
 ax2 = nexttile(t, 2);
-imagesc(ax2, lightness);
-axis(ax2, 'image');
-axis(ax2, 'off');
-if exist('func_dpcolor', 'file') == 2
-    colormap(ax2, func_dpcolor());
-else
-    colormap(ax2, parula(256));
-end
-clim(ax2, [0 1]);
-cb = colorbar(ax2);
-cb.Location = 'southoutside';
-cb.Label.String = 'CIELAB Lightness (L*) / 100';
+imshow(imgRGB, 'Parent', ax2);
 hold(ax2, 'on');
-draw_roi_boundaries(ax2, roiBoundary, 'w', 2);
+draw_roi_boundaries(ax2, roiBoundary, 'y', 2);
 hold(ax2, 'off');
-title(ax2, sprintf('b) Lightness (ROI mean=%.4f, std=%.4f)', overallMean, overallStd));
+title(ax2, 'b) Calibrated RGB with ROI boundary');
 
 ax3 = nexttile(t, 3);
-mergedMapMasked = mergedMap;
-mergedMapMasked(~roiMask) = NaN;
-imagesc(ax3, mergedMapMasked, 'AlphaData', ~isnan(mergedMapMasked));
+imagesc(ax3, lightness);
 axis(ax3, 'image');
 axis(ax3, 'off');
-colormap(ax3, mergedClassColors);
-clim(ax3, [1 nClasses]);
-title(ax3, 'c) Classification');
+if exist('func_dpcolor', 'file') == 2
+    colormap(ax3, func_dpcolor());
+else
+    colormap(ax3, parula(256));
+end
+clim(ax3, [0 1]);
+cb = colorbar(ax3);
+cb.Location = 'southoutside';
+cb.Label.String = 'CIELAB Lightness (L*) / 100';
+hold(ax3, 'on');
+draw_roi_boundaries(ax3, roiBoundary, 'w', 2);
+hold(ax3, 'off');
+title(ax3, sprintf('c) Lightness (ROI mean=%.4f, std=%.4f)', overallMean, overallStd));
+
+ax4 = nexttile(t, 4);
+mergedMapMasked = mergedMap;
+mergedMapMasked(~roiMask) = NaN;
+imagesc(ax4, mergedMapMasked, 'AlphaData', ~isnan(mergedMapMasked));
+axis(ax4, 'image');
+axis(ax4, 'off');
+colormap(ax4, mergedClassColors);
+clim(ax4, [1 nClasses]);
+title(ax4, 'd) Classification');
 
 if hasScaleInfo
-    draw_scale_bar(ax3, h, pixelsPerCm, scaleBarLength_cm);
+    draw_scale_bar(ax4, h, pixelsPerCm, scaleBarLength_cm);
 end
 
 legendHandles = gobjects(1, nClasses);
 for c = 1:nClasses
-    legendHandles(c) = patch(ax3, nan, nan, mergedClassColors(c, :), ...
+    legendHandles(c) = patch(ax4, nan, nan, mergedClassColors(c, :), ...
         'EdgeColor', 'k', 'DisplayName', mergedClassNames{c});
 end
-legend(ax3, legendHandles, mergedClassNames, ...
+legend(ax4, legendHandles, mergedClassNames, ...
     'Location', 'southoutside', ...
     'NumColumns', nClasses, ...
     'Box', 'off');
@@ -162,7 +173,8 @@ pngPath = fullfile(outputFolder, sprintf('%s_two_class_analysis.png', baseName))
 pdfPath = fullfile(outputFolder, sprintf('%s_two_class_analysis.pdf', baseName));
 exportgraphics(fig, pngPath, 'Resolution', 300);
 exportgraphics(fig, pdfPath, 'Resolution', 300);
-close(fig);
+% close(fig);
+fontsize(t, 20, "points");
 
 fprintf('Saved figure to:\n%s\n%s\n', pngPath, pdfPath);
 
@@ -184,6 +196,78 @@ if isfield(S, 'roiData')
             return;
         end
     end
+end
+end
+
+
+function rawImage = get_raw_image_from_file(inputImageFile, fallbackImage)
+% Read input image directly from source file for panel a).
+% If possible, apply black-level subtraction and white-balance correction
+% before demosaic so the image is not too dark.
+rawImage = [];
+
+try
+    % For camera raw files, apply correction pipeline, demosaic,
+    % then convert from camera space to sRGB.
+    if exist('rawread', 'file') == 2 && exist('rawinfo', 'file') == 2
+        rawMosaic = rawread(inputImageFile);
+        rawMeta = rawinfo(inputImageFile);
+        if isnumeric(rawMosaic) && isfield(rawMeta, 'CFALayout') && isfield(rawMeta, 'ColorInfo')
+            colorInfo = rawMeta.ColorInfo;
+
+            blackLevel = colorInfo.BlackLevel;
+            blackLevel = reshape(blackLevel, [1 1 numel(blackLevel)]);
+            blackLevel = planar2raw(blackLevel);
+
+            repeatDims = rawMeta.ImageSizeInfo.VisibleImageSize ./ size(blackLevel);
+            blackLevel = repmat(blackLevel, repeatDims);
+
+            imgCorrected = rawMosaic - blackLevel;
+            imgCorrected = max(0, imgCorrected);
+
+            imgCorrected = double(imgCorrected);
+            maxValue = max(imgCorrected(:));
+            if maxValue > 0
+                imgCorrected = imgCorrected ./ maxValue;
+            end
+
+            whiteBalance = colorInfo.CameraAsTakenWhiteBalance;
+            gLoc = strfind(rawMeta.CFALayout, "G");
+            gLoc = gLoc(1);
+            whiteBalance = whiteBalance / whiteBalance(gLoc);
+
+            whiteBalance = reshape(whiteBalance, [1 1 numel(whiteBalance)]);
+            whiteBalance = planar2raw(whiteBalance);
+            whiteBalance = repmat(whiteBalance, repeatDims);
+            imgCorrected = imgCorrected .* whiteBalance;
+
+            imgLinear = demosaic(im2uint16(imgCorrected), rawMeta.CFALayout);
+
+            if isfield(colorInfo, 'CameraTosRGB')
+                cam2srgbMat = colorInfo.CameraTosRGB;
+                imTransform = imapplymatrix(cam2srgbMat, imgLinear, "uint16");
+                rawImage = lin2rgb(imTransform);
+            else
+                rawImage = imgLinear;
+            end
+        end
+    end
+catch
+    rawImage = [];
+end
+
+if isempty(rawImage)
+    try
+        rawImage = imread(inputImageFile);
+    catch
+        warning('Could not read inputImageFile directly. Using img_color_corrected in panel a).');
+        rawImage = fallbackImage;
+    end
+end
+
+if ndims(rawImage) ~= 3 || size(rawImage, 3) ~= 3
+    warning('Input image is not RGB. Using img_color_corrected in panel a).');
+    rawImage = fallbackImage;
 end
 end
 
