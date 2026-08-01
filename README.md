@@ -44,22 +44,22 @@ A tutorial on how to capture images for calibration is available in the [doc\fie
 If you use **iCalibrateImages** in your research, please cite the associated publication.
 
 ```markdown
-Shunan Feng (2026) “glacier-lab/Field-Image-Calibration: iCalibrateImages”. Zenodo. doi:10.5281/zenodo.21192432.
+Shunan Feng (2026) “glacier-lab/Field-Image-Calibration: iCalibrateImages”. Zenodo. Available at: https://doi.org/10.5281/zenodo.21742413.
 ```
 
 Latex
 ```
-@software{shunan_feng_2026_21192432,
+@software{shunan_feng_2026_21742413,
   author       = {Shunan Feng},
   title        = {glacier-lab/Field-Image-Calibration:
                    iCalibrateImages
                   },
-  month        = jul,
+  month        = aug,
   year         = 2026,
   publisher    = {Zenodo},
-  version      = {v1.0-beta},
-  doi          = {10.5281/zenodo.21192432},
-  url          = {https://doi.org/10.5281/zenodo.21192432},
+  version      = {v1.1-beta},
+  doi          = {10.5281/zenodo.21742413},
+  url          = {https://doi.org/10.5281/zenodo.21742413},
 }
 ```
 
