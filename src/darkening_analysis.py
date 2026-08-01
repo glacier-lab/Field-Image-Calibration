@@ -25,6 +25,26 @@ df = df.dropna(subset=["Total Ancylomena cells [mL-1]", "Lightness values", "cc_
 df["cell_log"] = np.log(df["Total Ancylomena cells [mL-1]"])
 df["ice_frac"] = 1 - df["cc_frac"]
 df["algae_per_ice"] = df["Total Ancylomena cells [mL-1]"] * df["ice_frac"]
+
+#%% quick statistics of the data
+print(f"Number of samples: {len(df)}")
+print(f"Mean Lightness: {df['Lightness values'].mean():.4f}")
+print(f"Std Lightness: {df['Lightness values'].std():.4f}")
+print(f"Mean cell concentration: {df['Total Ancylomena cells [mL-1]'].mean():.4f}")
+print(f"Std cell concentration: {df['Total Ancylomena cells [mL-1]'].std():.4f}")
+print(f"mean cryoconite fraction: {df['cc_frac'].mean():.4f}")
+print(f"std cryoconite fraction: {df['cc_frac'].std():.4f}")
+print(f"mean area of roi: {df['Area scraped (cm2) - approx'].mean():.4f} cm2")
+print(f"std area of roi: {df['Area scraped (cm2) - approx'].std():.4f} cm2")
+print(f"median Lightness: {df['Lightness values'].median():.4f}")
+print(f"median absolute deviation Lightness: {stats.median_abs_deviation(df['Lightness values'], scale=1):.4f}")
+print(f"median cell concentration: {df['Total Ancylomena cells [mL-1]'].median():.4f}")
+print(f"median absolute deviation cell concentration: {stats.median_abs_deviation(df['Total Ancylomena cells [mL-1]'], scale=1):.4f}")
+print(f"median cryoconite fraction: {df['cc_frac'].median():.4f}")
+print(f"median absolute deviation cryoconite fraction: {stats.median_abs_deviation(df['cc_frac'], scale=1):.4f}")
+print(f"median area of roi: {df['Area scraped (cm2) - approx'].median():.4f} cm2")
+print(f"median absolute deviation area of roi: {stats.median_abs_deviation(df['Area scraped (cm2) - approx'], scale=1):.4f} cm2")
+
 # %% use a multiple regression model to predict lightness from cell_log and ice_frac and cc frac
 
 mdl = LinearRegression()
@@ -66,13 +86,14 @@ sns.regplot(
 )
 # add 1:1 line to the right plot
 axs[1].plot([0, 1], [0, 1], 'k--', lw=2)
-axs[1].set_xlim(0.5, 0.95)
-axs[1].set_ylim(0.5, 0.95)
+axs[1].set_xlim(0.5, 1)
+axs[1].set_ylim(0.5, 1)
+axs[0].set_ylim(0.5, 1)
 
 axs[0].set_ylabel("CIELAB Lightness (L*)/100")
 axs[0].set_xlabel("log(Cell Concentration mL$^{-1}$)")
 axs[1].set_ylabel("Predicted Lightness")
-axs[1].set_xlabel("Actual Lightness")
+axs[1].set_xlabel("CIELAB Lightness (L*)/100")
 
 # axs[0].set_aspect()
 axs[1].set_aspect('equal')
