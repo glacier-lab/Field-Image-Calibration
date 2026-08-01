@@ -3,7 +3,7 @@
 
 [![Software Repository](https://img.shields.io/badge/iCalibrateImages_v1.1-Windows&macOS&Linux-blue)](https://www.erda.au.dk/archives/b7374394d4a96cd79be717637ae7d11f/published-archive.html)
 [![Supplementary Material](https://img.shields.io/badge/Supplementary_Material-ERDA-blue)](https://www.erda.au.dk/archives/df1889def2ddbbe99a51f7a3b360e964/published-archive.html)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21192432.svg)](https://doi.org/10.5281/zenodo.21192432)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21742413.svg)](https://doi.org/10.5281/zenodo.21742413)
 
 
 ## Overview
