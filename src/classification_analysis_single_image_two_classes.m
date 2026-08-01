@@ -171,10 +171,11 @@ legend(ax4, legendHandles, mergedClassNames, ...
 [~, baseName, ~] = fileparts(inputFile);
 pngPath = fullfile(outputFolder, sprintf('%s_two_class_analysis.png', baseName));
 pdfPath = fullfile(outputFolder, sprintf('%s_two_class_analysis.pdf', baseName));
+fontsize(t, 20, "points");
 exportgraphics(fig, pngPath, 'Resolution', 300);
 exportgraphics(fig, pdfPath, 'Resolution', 300);
 % close(fig);
-fontsize(t, 20, "points");
+
 
 fprintf('Saved figure to:\n%s\n%s\n', pngPath, pdfPath);
 

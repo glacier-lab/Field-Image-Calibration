@@ -2,7 +2,7 @@
 # Field-Image-Calibration
 
 [![Software Repository](https://img.shields.io/badge/iCalibrateImages_v1.1-Windows&macOS&Linux-blue)](https://www.erda.au.dk/archives/b7374394d4a96cd79be717637ae7d11f/published-archive.html)
-[![Supplementary Material](https://img.shields.io/badge/Supplementary_Material-ERDA-blue)](https://www.erda.au.dk/archives/b40fa172f2e5f7a58ea84ccf81b7ab1c/published-archive.html)
+[![Supplementary Material](https://img.shields.io/badge/Supplementary_Material-ERDA-blue)](https://www.erda.au.dk/archives/df1889def2ddbbe99a51f7a3b360e964/published-archive.html)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21192432.svg)](https://doi.org/10.5281/zenodo.21192432)
 
 
@@ -30,7 +30,7 @@ Note that there is a readme file for the macOS version that provides additional 
 The starting up can be slow during installation or first time running. Please be patient.
 
 ## Image post-processing workflow
-A [random forest classifier](https://www.erda.au.dk/archives/b40fa172f2e5f7a58ea84ccf81b7ab1c/GlacierLab/Production/iCalibrateImages/TCsupplementary/rf_training_output/vegetation_classifier_rf.pkl) is available on [ERDA](https://www.erda.au.dk/archives/b40fa172f2e5f7a58ea84ccf81b7ab1c/published-archive.html) to automatically classify the surface ice to derive the fractional cryoconite cover. 
+A [random forest classifier](https://www.erda.au.dk/archives/df1889def2ddbbe99a51f7a3b360e964/GlacierLab/Production/iCalibrateImages/supplementary/rf_training_output/vegetation_classifier_rf.pkl) is available on [ERDA](https://www.erda.au.dk/archives/df1889def2ddbbe99a51f7a3b360e964/published-archive.html) to automatically classify the surface ice to derive the fractional cryoconite cover. 
 Download the classifier and run [src\applyClassifier.py](src/applyClassifier.py) to apply the classifier to the calibrated images.
 Then [src\classification_analysis_two_classes.m](src/classification_analysis_two_classes.m) can be used to analyze the classification results and derive the fractional cryoconite cover.
 
