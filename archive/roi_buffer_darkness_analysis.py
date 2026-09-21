@@ -5,18 +5,22 @@ For each MAT file produced by the calibration app (containing roiData.mask,
 roiData.scaleInfo.pixelsPerCm and img_color_corrected), this script:
 - Builds the CIELAB Lightness map (L*/100) for the whole image.
 - Steps the ROI boundary outward (positive buffer) or inward (negative buffer)
-  by a given distance in cm, using morphological dilation/erosion sized in
-  pixels via pixelsPerCm.
+  by a given distance in cm. Buffering is done with a distance transform
+  computed once per image, then thresholded per step (O(1) per step instead
+  of re-running morphology with an ever-larger kernel).
 - Prints the mean/std lightness ("darkness") and pixel count within the
   buffered ROI at each step, plus a summary aggregated across all images.
 - Saves per-image and summary results as CSV files under stat/ for later
   plotting/analysis.
+- Processes MAT files in parallel across worker processes.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -100,18 +104,31 @@ def compute_lightness(img_rgb: np.ndarray) -> np.ndarray:
     return np.clip(lightness, 0.0, 1.0)
 
 
-def buffer_mask(mask: np.ndarray, buffer_cm: float, pixels_per_cm: float) -> np.ndarray:
-    radius_px = int(round(abs(buffer_cm) * pixels_per_cm))
-    if radius_px == 0:
-        return mask.copy()
+def compute_distance_maps(mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Distance (in px) to the ROI boundary, computed once per image.
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius_px + 1, 2 * radius_px + 1))
+    dist_inside[y, x]  = distance to nearest non-ROI pixel (valid inside the ROI).
+    dist_outside[y, x] = distance to nearest ROI pixel (valid outside the ROI).
+    """
     mask_u8 = mask.astype(np.uint8)
+    dist_inside = cv2.distanceTransform(mask_u8, cv2.DIST_L2, 5)
+    dist_outside = cv2.distanceTransform(1 - mask_u8, cv2.DIST_L2, 5)
+    return dist_inside, dist_outside
+
+
+def buffer_mask(
+    mask: np.ndarray,
+    buffer_cm: float,
+    pixels_per_cm: float,
+    dist_inside: np.ndarray,
+    dist_outside: np.ndarray,
+) -> np.ndarray:
+    radius_px = abs(buffer_cm) * pixels_per_cm
+    if radius_px == 0:
+        return mask
     if buffer_cm > 0:
-        buffered = cv2.dilate(mask_u8, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-    else:
-        buffered = cv2.erode(mask_u8, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=1)
-    return buffered.astype(bool)
+        return mask | (dist_outside <= radius_px)
+    return dist_inside >= radius_px
 
 
 def find_mat_files(folder: Path) -> List[Path]:
@@ -131,6 +148,55 @@ def save_csv(rows: List[Dict[str, Any]], out_path: Path) -> None:
     print(f"Saved: {out_path}")
 
 
+def process_one_file(mat_path: Path, buffer_steps: np.ndarray) -> Tuple[str, Optional[str], List[Dict[str, Any]]]:
+    """Runs in a worker process: returns (filename, error_or_None, rows)."""
+    try:
+        data = to_dict(safe_loadmat(mat_path))
+    except Exception as exc:
+        return mat_path.name, f"ERROR loading MAT file ({exc})", []
+
+    roi_data = data.get("roiData")
+    img_rgb = data.get("img_color_corrected")
+    if not isinstance(roi_data, dict) or img_rgb is None:
+        return mat_path.name, "missing roiData or img_color_corrected, skipping", []
+
+    img_rgb = np.asarray(img_rgb)
+    if img_rgb.ndim != 3 or img_rgb.shape[2] != 3:
+        return mat_path.name, "img_color_corrected is not HxWx3, skipping", []
+    h, w = img_rgb.shape[:2]
+
+    mask = get_roi_mask(roi_data, h, w)
+    pixels_per_cm = get_pixels_per_cm(roi_data)
+    if mask is None or pixels_per_cm is None:
+        return mat_path.name, "missing ROI mask or scale info, skipping", []
+
+    lightness = compute_lightness(img_rgb)
+    dist_inside, dist_outside = compute_distance_maps(mask)
+
+    rows: List[Dict[str, Any]] = []
+    for buffer_cm in buffer_steps:
+        buffer_cm = float(buffer_cm)
+        buffered = buffer_mask(mask, buffer_cm, pixels_per_cm, dist_inside, dist_outside)
+        vals = lightness[buffered]
+        n_px = int(vals.size)
+        if n_px == 0:
+            continue
+
+        rows.append(
+            {
+                "file": mat_path.name,
+                "buffer_cm": buffer_cm,
+                "mean_lightness": float(np.mean(vals)),
+                "std_lightness": float(np.std(vals, ddof=0)),
+                "n_px": n_px,
+                "area_cm2": n_px / pixels_per_cm ** 2,
+                "pixels_per_cm": pixels_per_cm,
+            }
+        )
+
+    return mat_path.name, None, rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Sweep ROI buffer distance (cm) and print mean/std lightness for each step."
@@ -140,6 +206,7 @@ def main() -> None:
     parser.add_argument("--buffer-max-cm", type=float, default=8.5, help="Most positive (grow) buffer distance in cm.")
     parser.add_argument("--buffer-step-cm", type=float, default=0.5, help="Step size in cm, e.g. 0.1 or 0.5.")
     parser.add_argument("--output-folder", type=Path, default=DEFAULT_OUTPUT_FOLDER, help="Folder to save CSV results in.")
+    parser.add_argument("--workers", type=int, default=os.cpu_count()-2, help="Number of worker processes (files processed in parallel).")
     args = parser.parse_args()
 
     input_folder = args.input_folder
@@ -160,63 +227,26 @@ def main() -> None:
 
     print(f"Scanning {len(mat_files)} MAT files in: {input_folder}")
     print(f"Buffer range: {args.buffer_min_cm} to {args.buffer_max_cm} cm, step {args.buffer_step_cm} cm")
+    print(f"Workers: {args.workers}")
     print("=" * 88)
 
-    for mat_path in mat_files:
-        try:
-            data = to_dict(safe_loadmat(mat_path))
-        except Exception as exc:
-            print(f"{mat_path.name}: ERROR loading MAT file ({exc})")
-            continue
-
-        roi_data = data.get("roiData")
-        img_rgb = data.get("img_color_corrected")
-        if not isinstance(roi_data, dict) or img_rgb is None:
-            print(f"{mat_path.name}: missing roiData or img_color_corrected, skipping")
-            continue
-
-        img_rgb = np.asarray(img_rgb)
-        if img_rgb.ndim != 3 or img_rgb.shape[2] != 3:
-            print(f"{mat_path.name}: img_color_corrected is not HxWx3, skipping")
-            continue
-        h, w = img_rgb.shape[:2]
-
-        mask = get_roi_mask(roi_data, h, w)
-        pixels_per_cm = get_pixels_per_cm(roi_data)
-        if mask is None or pixels_per_cm is None:
-            print(f"{mat_path.name}: missing ROI mask or scale info, skipping")
-            continue
-
-        lightness = compute_lightness(img_rgb)
-
-        print(f"{mat_path.name} (pixelsPerCm={pixels_per_cm:.4f}):")
-        for buffer_cm in buffer_steps:
-            key = round(float(buffer_cm), 6)
-            buffered = buffer_mask(mask, float(buffer_cm), pixels_per_cm)
-            vals = lightness[buffered]
-            n_px = int(vals.size)
-            if n_px == 0:
-                print(f"  buffer={buffer_cm:+.2f} cm: ROI empty after buffering")
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        futures = {
+            executor.submit(process_one_file, mat_path, buffer_steps): mat_path
+            for mat_path in mat_files
+        }
+        for future in as_completed(futures):
+            mat_path = futures[future]
+            file_name, error, rows = future.result()
+            if error is not None:
+                print(f"{file_name}: {error}")
                 continue
 
-            mean_val = float(np.mean(vals))
-            std_val = float(np.std(vals, ddof=0))
-            print(
-                f"  buffer={buffer_cm:+.2f} cm: mean={mean_val:.6f}, std={std_val:.6f}, "
-                f"n_px={n_px}, area={n_px / pixels_per_cm ** 2:.4f} cm2"
-            )
-            per_step[key].append((mean_val, std_val, n_px))
-            per_image_rows.append(
-                {
-                    "file": mat_path.name,
-                    "buffer_cm": buffer_cm,
-                    "mean_lightness": mean_val,
-                    "std_lightness": std_val,
-                    "n_px": n_px,
-                    "area_cm2": n_px / pixels_per_cm ** 2,
-                    "pixels_per_cm": pixels_per_cm,
-                }
-            )
+            print(f"{file_name}: {len(rows)} buffer steps processed")
+            for row in rows:
+                key = round(row["buffer_cm"], 6)
+                per_step[key].append((row["mean_lightness"], row["std_lightness"], row["n_px"]))
+                per_image_rows.append(row)
 
     print("=" * 88)
     print("Summary across all images (mean of per-image means, ddof=0):")
